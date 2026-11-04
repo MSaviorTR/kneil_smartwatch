@@ -8,6 +8,7 @@
 #include <unistd.h>
 
 #include "esp_console.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 
@@ -94,6 +95,12 @@ static int cmd_status(int argc, char **argv)
            (unsigned long long)(lg.free_bytes / 1024),
            (unsigned long long)(lg.total_bytes / 1024),
            lg.full ? " FULL" : "", lg.error ? " ERROR" : "");
+
+    /* Internal DMA RAM is what the display and SPI need; watch this one. */
+    printf("memory   internal DMA free %u KB (largest block %u KB), PSRAM free %u KB\n",
+           (unsigned)(heap_caps_get_free_size(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL) / 1024),
+           (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL) / 1024),
+           (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
 
     return 0;
 }
