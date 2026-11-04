@@ -1,0 +1,79 @@
+menu "Guder Watch"
+
+    menu "Sensor MCU link"
+
+        config GW_LINK_UART_NUM
+            int "UART port"
+            range 1 2
+            default 1
+            help
+                UART used to receive frames from the sensor MCU. UART0 is left
+                alone so the ROM bootloader can still use it for flashing.
+
+        config GW_LINK_RX_GPIO
+            int "RX GPIO (sensor MCU TX goes here)"
+            default 44
+            help
+                44 is the pad labelled RXD on the board's bottom header.
+
+        config GW_LINK_TX_GPIO
+            int "TX GPIO (to sensor MCU RX)"
+            default 43
+            help
+                43 is the pad labelled TXD on the board's bottom header.
+
+        config GW_LINK_BAUD
+            int "Baud rate"
+            default 115200
+
+        config GW_LINK_TIMEOUT_MS
+            int "Declare link lost after (ms) without a valid frame"
+            default 5000
+
+    endmenu
+
+    menu "Data logging"
+
+        config GW_LOG_FLASH_PERIOD_S
+            int "Averaging period when logging to internal flash (s)"
+            range 1 600
+            default 10
+            help
+                Internal flash only holds a few MB, so samples are averaged
+                into one CSV row per period. On an SD card every sample is
+                written (period 1 s).
+
+        config GW_LOG_MIN_FREE_KB
+            int "Stop logging when free space falls below (KB)"
+            default 256
+
+    endmenu
+
+    menu "Alerts"
+
+        config GW_K_ALERT_DEFAULT_CENTI_MM
+            int "Default K+ alert threshold (hundredths of mM)"
+            default 600
+            help
+                600 = 6.00 mM. Normal extracellular K+ is roughly 3.5-5 mM.
+                This is a placeholder for bench testing, NOT a clinically
+                validated cut-off. Adjustable on the watch in Settings.
+
+        config GW_K_ALERT_HYSTERESIS_CENTI_MM
+            int "Alert hysteresis (hundredths of mM)"
+            default 30
+
+    endmenu
+
+    config GW_TIMEZONE
+        string "POSIX TZ string for the clock display"
+        default "GMT0BST,M3.5.0/1,M10.5.0"
+        help
+            The RTC always stores UTC. This only affects what is shown and
+            the local-time column in the logs. Default is UK time.
+
+    config GW_BLE_DEVICE_NAME
+        string "Bluetooth device name"
+        default "GuderWatch"
+
+endmenu
