@@ -16,20 +16,14 @@ static lv_obj_t *raw_lbl;
 static lv_obj_t *imu_lbl;
 static lv_obj_t *sys_lbl;
 
-static lv_obj_t *section(lv_obj_t *parent, const char *title)
+static lv_obj_t *section(lv_obj_t *parent, const char *icon, const char *title)
 {
-    lv_obj_t *card = lv_obj_create(parent);
+    lv_obj_t *card = ui_card(parent);
 
-    lv_obj_set_size(card, LV_PCT(100), LV_SIZE_CONTENT);
-    lv_obj_set_style_bg_color(card, UI_COL_CARD, 0);
-    lv_obj_set_style_border_width(card, 0, 0);
-    lv_obj_set_style_radius(card, 14, 0);
-    lv_obj_set_style_pad_all(card, 12, 0);
-    lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(card, 4, 0);
-    lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
-
-    ui_label(card, title, &lv_font_montserrat_16, UI_COL_DIM);
+    lv_obj_t *head = ui_row(card);
+    lv_obj_set_flex_align(head, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    ui_label(head, icon, &lv_font_montserrat_16, UI_COL_DIM);
+    ui_label(head, title, &lv_font_montserrat_16, UI_COL_DIM);
 
     lv_obj_t *body = ui_label(card, "", &lv_font_montserrat_16, UI_COL_TEXT);
     lv_obj_set_width(body, LV_PCT(100));
@@ -37,16 +31,15 @@ static lv_obj_t *section(lv_obj_t *parent, const char *title)
     return body;
 }
 
-void ui_diag_create(void)
+void ui_diag_create(lv_obj_t *tile)
 {
-    ui_scr_diag = ui_screen_create("DIAGNOSTICS");
+    lv_obj_t *page = ui_page(UI_PAGE_DIAG, LV_SYMBOL_LIST, "DIAGNOSTICS", UI_COL_DIM);
+    (void)tile;
 
-    link_lbl = section(ui_scr_diag, "SENSOR LINK");
-    raw_lbl  = section(ui_scr_diag, "RAW SIGNALS");
-    imu_lbl  = section(ui_scr_diag, "WATCH IMU");
-    sys_lbl  = section(ui_scr_diag, "SYSTEM");
-
-    ui_button(ui_scr_diag, LV_SYMBOL_LEFT "  Back", ui_go_menu_cb, NULL);
+    link_lbl = section(page, LV_SYMBOL_SHUFFLE, "SENSOR LINK");
+    raw_lbl  = section(page, LV_SYMBOL_CHARGE, "RAW SIGNALS");
+    imu_lbl  = section(page, LV_SYMBOL_GPS, "WATCH IMU");
+    sys_lbl  = section(page, LV_SYMBOL_SETTINGS, "SYSTEM");
 }
 
 void ui_diag_refresh(void)

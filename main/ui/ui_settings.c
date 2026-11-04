@@ -133,7 +133,7 @@ static void clear_logs_cb(lv_event_t *e)
 static void open_time(lv_event_t *e)
 {
     (void)e;
-    ui_go(ui_scr_time);
+    ui_open_time();
 }
 
 static lv_obj_t *switch_row(lv_obj_t *parent, const char *text, bool on)
@@ -169,38 +169,37 @@ static lv_obj_t *slider(lv_obj_t *parent, int min, int max, int value)
     return s;
 }
 
-void ui_settings_create(void)
+void ui_settings_create(lv_obj_t *tile)
 {
     app_settings_t s;
     app_state_get_settings(&s);
 
-    ui_scr_settings = ui_screen_create("SETTINGS");
+    lv_obj_t *page = ui_page(UI_PAGE_SETTINGS, LV_SYMBOL_SETTINGS, "SETTINGS", UI_COL_BLE);
+    (void)tile;
 
-    ble_sw  = switch_row(ui_scr_settings, LV_SYMBOL_BLUETOOTH "  Bluetooth", s.ble_enabled);
-    vib_sw  = switch_row(ui_scr_settings, "Vibration alerts", s.vibration_enabled);
-    demo_sw = switch_row(ui_scr_settings, "Demo data", s.demo_mode);
+    ble_sw  = switch_row(page, LV_SYMBOL_BLUETOOTH "  Bluetooth", s.ble_enabled);
+    vib_sw  = switch_row(page, "Vibration alerts", s.vibration_enabled);
+    demo_sw = switch_row(page, "Demo data", s.demo_mode);
 
     int tenths = (int)(s.k_alert_mM * 10.0f + 0.5f);
 
-    alert_lbl = ui_label(ui_scr_settings, "", &lv_font_montserrat_18, UI_COL_K);
+    alert_lbl = ui_label(page, "", &lv_font_montserrat_18, UI_COL_K);
     alert_text(tenths);
 
-    alert_slider = slider(ui_scr_settings, ALERT_MIN_TENTHS, ALERT_MAX_TENTHS, tenths);
+    alert_slider = slider(page, ALERT_MIN_TENTHS, ALERT_MAX_TENTHS, tenths);
     lv_obj_add_event_cb(alert_slider, alert_changed, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(alert_slider, alert_released, LV_EVENT_RELEASED, NULL);
 
-    ui_label(ui_scr_settings, LV_SYMBOL_EYE_OPEN "  Brightness", &lv_font_montserrat_18, UI_COL_TEXT);
+    ui_label(page, LV_SYMBOL_EYE_OPEN "  Brightness", &lv_font_montserrat_18, UI_COL_TEXT);
 
-    lv_obj_t *bright = slider(ui_scr_settings, BRIGHTNESS_MIN, 100, s.brightness);
+    lv_obj_t *bright = slider(page, BRIGHTNESS_MIN, 100, s.brightness);
     lv_obj_add_event_cb(bright, brightness_changed, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(bright, brightness_released, LV_EVENT_RELEASED, NULL);
 
-    ui_button(ui_scr_settings, LV_SYMBOL_REFRESH "  Set time", open_time, NULL);
-    ui_button(ui_scr_settings, LV_SYMBOL_TRASH "  Clear logs", clear_logs_cb, NULL);
+    ui_button(page, LV_SYMBOL_REFRESH "  Set time", open_time, NULL);
+    ui_button(page, LV_SYMBOL_TRASH "  Clear logs", clear_logs_cb, NULL);
 
-    storage_lbl = ui_label(ui_scr_settings, "", &lv_font_montserrat_14, UI_COL_DIM);
-
-    ui_button(ui_scr_settings, LV_SYMBOL_LEFT "  Back", ui_go_menu_cb, NULL);
+    storage_lbl = ui_label(page, "", &lv_font_montserrat_14, UI_COL_DIM);
 }
 
 void ui_settings_refresh(void)
@@ -302,18 +301,30 @@ static void time_save(lv_event_t *e)
         return;
     }
 
-    ui_go(ui_scr_settings);
+    ui_close_time();
 }
 
 static void time_cancel(lv_event_t *e)
 {
     (void)e;
-    ui_go(ui_scr_settings);
+    ui_close_time();
 }
 
 void ui_time_create(void)
 {
-    ui_scr_time = ui_screen_create("SET TIME");
+    ui_scr_time = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(ui_scr_time, UI_COL_BG, 0);
+    lv_obj_set_style_bg_opa(ui_scr_time, LV_OPA_COVER, 0);
+    lv_obj_set_style_text_color(ui_scr_time, UI_COL_TEXT, 0);
+    lv_obj_set_style_pad_all(ui_scr_time, UI_PAD, 0);
+    lv_obj_set_style_pad_row(ui_scr_time, 14, 0);
+    lv_obj_set_flex_flow(ui_scr_time, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(ui_scr_time, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+    lv_obj_t *head = ui_row(ui_scr_time);
+    lv_obj_set_flex_align(head, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    ui_label(head, LV_SYMBOL_REFRESH, &lv_font_montserrat_22, UI_COL_BLE);
+    ui_label(head, "SET TIME", &lv_font_montserrat_22, UI_COL_TEXT);
 
     lv_obj_t *date_row = ui_row(ui_scr_time);
     lv_obj_set_flex_align(date_row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);

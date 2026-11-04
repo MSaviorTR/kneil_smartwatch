@@ -5,3 +5,5 @@ sdkconfig.old
 .DS_Store
 __pycache__/
 test/host/build/
+test/sim/build/
+test/sim/out/

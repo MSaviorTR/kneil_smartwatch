@@ -39,7 +39,7 @@ static void span_cb(lv_event_t *e)
 {
     (void)e;
     span_idx = (span_idx + 1) % (int)(sizeof(SPANS_S) / sizeof(SPANS_S[0]));
-    lv_label_set_text_fmt(span_btn_lbl, LV_SYMBOL_LOOP "  %s", SPAN_TXT[span_idx]);
+    lv_label_set_text_fmt(span_btn_lbl, LV_SYMBOL_LOOP "  Showing %s", SPAN_TXT[span_idx]);
     ui_trend_refresh();
 }
 
@@ -57,8 +57,10 @@ static void trend_create(trend_t *t, lv_obj_t *parent, const char *name, lv_colo
 
     lv_obj_set_style_bg_color(t->chart, UI_COL_CARD, 0);
     lv_obj_set_style_border_width(t->chart, 0, 0);
+    lv_obj_set_style_radius(t->chart, 18, 0);
+    lv_obj_set_style_line_width(t->chart, 3, LV_PART_ITEMS);
+    lv_obj_remove_flag(t->chart, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_line_color(t->chart, lv_color_hex(0x2a2e36), LV_PART_MAIN);
-    lv_obj_set_style_line_width(t->chart, 2, LV_PART_ITEMS);
     lv_obj_set_style_size(t->chart, 0, 0, LV_PART_INDICATOR);   /* no point dots */
 
     t->series = lv_chart_add_series(t->chart, color, LV_CHART_AXIS_PRIMARY_Y);
@@ -75,28 +77,23 @@ static void trend_create(trend_t *t, lv_obj_t *parent, const char *name, lv_colo
     lv_obj_set_width(t->range, LV_PCT(100));
 }
 
-void ui_trend_create(void)
+void ui_trend_create(lv_obj_t *tile)
 {
-    ui_scr_trend = ui_screen_create("TRENDS");
-    lv_obj_set_style_pad_row(ui_scr_trend, 6, 0);
+    lv_obj_t *page = ui_page(UI_PAGE_TREND, LV_SYMBOL_IMAGE, "TRENDS", UI_COL_K);
+    (void)tile;
+    lv_obj_set_style_pad_row(page, 8, 0);
 
     buf_k  = heap_caps_malloc(MAX_SAMPLES * sizeof(float), MALLOC_CAP_SPIRAM);
     buf_ph = heap_caps_malloc(MAX_SAMPLES * sizeof(float), MALLOC_CAP_SPIRAM);
 
-    trend_create(&k_trend, ui_scr_trend, "K+ (mM)", UI_COL_K, true);
-    trend_create(&ph_trend, ui_scr_trend, "pH", UI_COL_PH, false);
+    trend_create(&k_trend, page, "K+  mM", UI_COL_K, true);
+    trend_create(&ph_trend, page, "pH", UI_COL_PH, false);
 
-    note_lbl = ui_label(ui_scr_trend, "", &lv_font_montserrat_14, UI_COL_WARN);
+    note_lbl = ui_label(page, "", &lv_font_montserrat_14, UI_COL_WARN);
 
-    lv_obj_t *row = ui_row(ui_scr_trend);
-
-    lv_obj_t *span = ui_button(row, "", span_cb, NULL);
-    lv_obj_set_size(span, 180, 54);
+    lv_obj_t *span = ui_button(page, "", span_cb, NULL);
     span_btn_lbl = lv_obj_get_child(span, 0);
-    lv_label_set_text_fmt(span_btn_lbl, LV_SYMBOL_LOOP "  %s", SPAN_TXT[span_idx]);
-
-    lv_obj_t *back = ui_button(row, LV_SYMBOL_LEFT "  Back", ui_go_menu_cb, NULL);
-    lv_obj_set_size(back, 180, 54);
+    lv_label_set_text_fmt(span_btn_lbl, LV_SYMBOL_LOOP "  Showing %s", SPAN_TXT[span_idx]);
 }
 
 /* Averages n_in samples (NAN-aware) into CHART_POINTS buckets,

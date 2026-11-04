@@ -89,10 +89,10 @@ static void describe_fit(char *buf, size_t len, cal_channel_t ch, const cal_fit_
         time_t t = (time_t)f->fitted_at;
         struct tm tm;
         localtime_r(&t, &tm);
-        strftime(when, sizeof(when), "  %d %b %H:%M", &tm);
+        strftime(when, sizeof(when), "\nsaved %d %b %H:%M", &tm);
     }
 
-    snprintf(buf, len, "Saved: %.1f %s (%.0f %%)  R2 %.4f%s",
+    snprintf(buf, len, "%.1f %s  (%.0f %% Nernstian)   R2 %.4f%s",
              (double)f->slope, STD[ch].slope_unit, (double)cal_slope_percent(f),
              (double)f->r2, when);
 }
@@ -147,6 +147,8 @@ static void select_channel(cal_channel_t ch)
     }
 
     lv_roller_set_options(roller, STD[ch].roller, LV_ROLLER_MODE_NORMAL);
+    lv_obj_set_style_bg_color(roller, ch == CAL_CHANNEL_K ? UI_COL_K : UI_COL_PH, LV_PART_SELECTED);
+    lv_obj_set_style_text_color(roller, UI_COL_BG, LV_PART_SELECTED);
     lv_roller_set_selected(roller, 1, LV_ANIM_OFF);
 
     update_points_label();
@@ -316,49 +318,48 @@ static lv_obj_t *channel_button(lv_obj_t *parent, const char *text, cal_channel_
     return b;
 }
 
-void ui_calib_create(void)
+void ui_calib_create(lv_obj_t *tile)
 {
-    ui_scr_calib = ui_screen_create("CALIBRATE");
-    lv_obj_set_style_pad_row(ui_scr_calib, 10, 0);
+    lv_obj_t *page = ui_page(UI_PAGE_CALIB, LV_SYMBOL_EDIT, "CALIBRATE", UI_COL_OK);
+    (void)tile;
 
-    lv_obj_t *row = ui_row(ui_scr_calib);
+    lv_obj_t *row = ui_row(page);
     k_btn  = channel_button(row, "K+", CAL_CHANNEL_K, UI_COL_K);
     ph_btn = channel_button(row, "pH", CAL_CHANNEL_PH, UI_COL_PH);
 
-    fit_lbl = ui_label(ui_scr_calib, "", &lv_font_montserrat_14, UI_COL_DIM);
+    fit_lbl = ui_label(page, "", &lv_font_montserrat_14, UI_COL_DIM);
     lv_obj_set_width(fit_lbl, LV_PCT(100));
+    lv_obj_set_style_text_align(fit_lbl, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(fit_lbl, LV_LABEL_LONG_WRAP);
 
-    live_lbl = ui_label(ui_scr_calib, "", &lv_font_montserrat_18, UI_COL_TEXT);
+    live_lbl = ui_label(page, "", &lv_font_montserrat_18, UI_COL_TEXT);
     lv_obj_set_width(live_lbl, LV_PCT(100));
     lv_obj_set_style_text_align(live_lbl, LV_TEXT_ALIGN_CENTER, 0);
 
-    blocked_lbl = ui_label(ui_scr_calib,
+    blocked_lbl = ui_label(page,
                            "Needs live sensor data.\nConnect the sensor MCU and turn demo mode off.",
                            &lv_font_montserrat_16, UI_COL_ALERT);
     lv_obj_set_width(blocked_lbl, LV_PCT(100));
     lv_obj_set_style_text_align(blocked_lbl, LV_TEXT_ALIGN_CENTER, 0);
 
-    roller = lv_roller_create(ui_scr_calib);
+    roller = lv_roller_create(page);
     lv_roller_set_visible_row_count(roller, 3);
     lv_obj_set_width(roller, 240);
     lv_obj_set_style_text_font(roller, &lv_font_montserrat_22, 0);
     lv_obj_set_style_bg_color(roller, UI_COL_CARD, 0);
     lv_obj_set_style_text_color(roller, UI_COL_TEXT, 0);
 
-    capture_btn = ui_button(ui_scr_calib, LV_SYMBOL_DOWNLOAD "  Capture standard", capture_cb, NULL);
+    capture_btn = ui_button(page, LV_SYMBOL_DOWNLOAD "  Capture standard", capture_cb, NULL);
 
-    points_lbl = ui_label(ui_scr_calib, "", &lv_font_montserrat_16, UI_COL_TEXT);
+    points_lbl = ui_label(page, "", &lv_font_montserrat_16, UI_COL_TEXT);
     lv_obj_set_width(points_lbl, LV_PCT(100));
 
-    row = ui_row(ui_scr_calib);
+    row = ui_row(page);
     fit_btn = ui_button(row, LV_SYMBOL_OK "  Fit & save", fit_cb, NULL);
     lv_obj_set_size(fit_btn, 180, 54);
 
     lv_obj_t *clear = ui_button(row, LV_SYMBOL_TRASH "  Clear", clear_cb, NULL);
     lv_obj_set_size(clear, 180, 54);
-
-    ui_button(ui_scr_calib, LV_SYMBOL_LEFT "  Back", ui_go_menu_cb, NULL);
 
     select_channel(CAL_CHANNEL_K);
 }

@@ -82,13 +82,21 @@ At the `gw>` prompt type `help`.
 
 ## Using the watch
 
-| Screen | What it does |
+A splash screen shows at boot, then the watch face. **Swipe left and right** to move
+between five pages. The dots at the bottom show which page you're on.
+
+| Page | What it does |
 |---|---|
-| **Watch face** | Time, battery, link status (`LIVE` / `DEMO` / `LINK LOST`), K⁺ and pH tiles, red banner on a K⁺ alert, warning when movement may disturb readings. Tap a tile to see trends |
+| **Watch face** | Time and status (`LIVE` / `DEMO` / `LOST`, Bluetooth, storage, battery). K⁺ gauge with green (normal), amber (elevated) and red (≥ alert threshold) zones. The marker and number glide to each new value. pH ring, 30 min K⁺ sparkline and a trend arrow (e.g. `▲ +0.6 mM / 10 min`). The date line turns into a warning for "clock not set" or "movement". Tap the gauge or the pH ring to open Trends |
 | **Trends** | K⁺ (with the alert threshold line) and pH over 5 or 30 min |
 | **Calibrate** | Guided 2–5 point calibration, see below |
 | **Diagnostics** | Link counters, raw mV, flags, IMU, battery, storage, clock and BLE state |
 | **Settings** | Bluetooth, vibration, demo data, K⁺ alert threshold, brightness, set time, clear logs |
+
+When K⁺ crosses the alert threshold, a pulsing red full-screen alert appears over
+whatever page is open, showing the value, its 10 min change and the threshold. It has
+*See trend* and *Dismiss* buttons. Once dismissed, it only comes back when a new alert
+starts, i.e. after K⁺ has dropped back below the threshold and risen again.
 
 **Demo data** produces a realistic synthetic signal, including a K⁺ spike
 every 4 min, so the whole pipeline can be shown without hardware. It is labelled
@@ -152,6 +160,17 @@ The device appears as `GuderWatch` and works with any generic BLE app (e.g. nRF 
 There is no pairing. That's fine on the bench, but add LE Secure Connections before
 any work with people.
 
+## Previewing the UI without the watch
+
+```bash
+./test/sim/run.sh
+```
+
+This compiles the real `main/ui/` code and LVGL for your Mac, feeds it fake readings,
+and writes screenshots of every page to `test/sim/out/`. Scenarios: live, alert, demo,
+uncalibrated, no sensor. Use it to check layout changes before flashing. Run
+`idf.py build` once first so LVGL is downloaded.
+
 ## Tests
 
 ```bash
@@ -182,6 +201,8 @@ every 90 s so you can practise calibration.
 | K⁺ alert threshold | Settings / Kconfig | 6.0 mM, a bench placeholder, **not** a clinical cut-off |
 | Stability criteria for capture | `ui/ui_calib.c` | SD ≤ 0.5 mV, drift ≤ 1 mV over 30 s |
 | Motion thresholds | `housekeeping.c` | \|a\| ±0.15 g or 40 °/s |
+| "Normal" band on the gauge | `ui/ui_internal.h` | below 5.0 mM |
+| Trend arrow thresholds | `ui/ui_face.c` | ±0.3 mM/10 min notable, +1.0 fast |
 | Sample rate | sensor MCU | 1 Hz assumed |
 | Standards offered | `ui/ui_calib.c` | listed above |
 | Temperature compensation | — | none yet; the slope % is reported against 25 °C |
@@ -203,7 +224,8 @@ main/
   usb_console.*       status / settime / ls / cat / rm
   imu_service.*       QMI8658 driver
   power_service.*     AXP2101 via XPowersLib
-  ui/                 LVGL screens
+  ui/                 LVGL pages (face, trends, calibrate, diagnostics, settings, alert)
 tools/                sensor-MCU emulator, log puller
 test/host/            unit + contract tests
+test/sim/             host UI renderer -> screenshots
 ```

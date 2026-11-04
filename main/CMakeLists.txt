@@ -14,7 +14,8 @@ idf_component_register(
         imu_service.c
         power_service.cpp
         ui/ui.c
-        ui/ui_home.c
+        ui/ui_face.c
+        ui/ui_alert.c
         ui/ui_trend.c
         ui/ui_diag.c
         ui/ui_calib.c
