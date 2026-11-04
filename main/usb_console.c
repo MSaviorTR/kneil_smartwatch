@@ -15,6 +15,7 @@
 #include "app_state.h"
 #include "data_logger.h"
 #include "rtc_service.h"
+#include "sensor_protocol.h"
 #include "usb_console.h"
 
 static const char *TAG = "console";
@@ -265,6 +266,37 @@ static int cmd_rm(int argc, char **argv)
     return 0;
 }
 
+/* Same frames as the UART link, delivered over the USB cable, so a laptop
+   can stream live data (potentiostat export, bridge script, emulator)
+   without a USB-UART adapter. Silent on success to keep streaming fast. */
+static int cmd_frame(int argc, char **argv)
+{
+    if(argc != 2)
+    {
+        printf("usage: frame $GKS,...*CS\n");
+        return 1;
+    }
+
+    sensor_frame_t f;
+
+    switch(sensor_protocol_parse(argv[1], &f))
+    {
+        case SENSOR_PARSE_OK:
+            app_state_push_frame(&f, DATA_SRC_SENSOR);
+            return 0;
+
+        case SENSOR_PARSE_ERR_CHECKSUM:
+            app_state_count_bad_frame(true);
+            printf("bad checksum\n");
+            return 1;
+
+        default:
+            app_state_count_bad_frame(false);
+            printf("bad frame\n");
+            return 1;
+    }
+}
+
 /* ------------------------------------------------------------------ */
 
 esp_err_t usb_console_start(void)
@@ -292,6 +324,7 @@ esp_err_t usb_console_start(void)
         { .command = "ls",      .help = "list log files",                      .func = cmd_ls },
         { .command = "cat",     .help = "cat <file> - dump a log file",        .func = cmd_cat },
         { .command = "rm",      .help = "rm <file> | rm all",                  .func = cmd_rm },
+        { .command = "frame",   .help = "frame <$GKS line> - live data over USB", .func = cmd_frame },
     };
 
     for(size_t i = 0; i < sizeof(cmds) / sizeof(cmds[0]); i++)

@@ -15,6 +15,7 @@ extern "C" {
  *   ls                  list log files
  *   cat <file>          dump a log file between BEGIN/END markers
  *   rm <file> | rm all  delete one / every log file
+ *   frame <$GKS line>   feed one sensor frame (live data over USB)
  *
  * tools/pull_logs.py uses `ls` and `cat` to copy logs to the laptop.
  */

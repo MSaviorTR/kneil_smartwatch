@@ -9,6 +9,7 @@ Wiring (3.3 V logic only - a 5 V adapter can damage the ESP32):
     adapter GND -> watch pad "GND"
 
 Examples:
+    python tools/sensor_mcu_emulator.py /dev/cu.usbmodem3101 --usb  # over the watch's USB cable
     python tools/sensor_mcu_emulator.py /dev/tty.usbserial-0001
     python tools/sensor_mcu_emulator.py PORT --scenario spike
     python tools/sensor_mcu_emulator.py PORT --scenario standards   # practise calibration
@@ -103,6 +104,9 @@ def main():
                    help="set a channel fault flag on every frame")
     p.add_argument("--corrupt", type=float, default=0.0,
                    help="fraction of frames sent with a bad checksum (link-robustness test)")
+    p.add_argument("--usb", action="store_true",
+                   help="PORT is the watch's own USB port: send frames as console "
+                        "'frame' commands, no USB-UART adapter needed")
     p.add_argument("--stdout", action="store_true", help="print frames instead of using a port")
     p.add_argument("--count", type=int, default=0, help="stop after N frames (0 = forever)")
     args = p.parse_args()
@@ -135,7 +139,8 @@ def main():
                 sys.stdout.write(line)
                 sys.stdout.flush()
             else:
-                out.write(line.encode("ascii"))
+                out.write((("frame " + line.strip() + "\n") if args.usb else line).encode("ascii"))
+                out.read(4096)   # drain the console echo so buffers never fill
                 if seq % 10 == 0:
                     print(f"[{t:7.1f}s] seq {seq}  K {k_mv:7.2f} mV  pH {ph_mv:7.2f} mV")
 
