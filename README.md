@@ -63,9 +63,9 @@ $GKS,42,123456,152.250,-21.500,36.8,0*5C
 | `CS` | XOR of every byte between `$` and `*`, two hex digits |
 
 The spec lives in `main/sensor_protocol.h`, and `tools/sensor_mcu_emulator.py` is
-a reference implementation. Any MCU that can `printf` can send this. **1 Hz
-is the assumed rate.** Trend spans and the 30 min history assume roughly
-1 frame/s.
+a reference implementation. Any MCU that can `printf` can send this. **Any
+sample rate works.** The watch keeps history per second, so 1–10 Hz (sensible for ISEs)
+and faster rates all give correct 5/30 min trends. Bluetooth sends at most 1 update/s.
 
 ## Build and flash
 
@@ -93,7 +93,7 @@ between five pages. The dots at the bottom show which page you're on.
 | **Diagnostics** | Link counters, raw mV, flags, IMU, battery, storage, clock and BLE state |
 | **Settings** | Bluetooth, vibration, demo data, K⁺ alert threshold, brightness, set time, clear logs |
 
-When K⁺ crosses the alert threshold, a pulsing red full-screen alert appears over
+When K⁺ stays above the alert threshold for 5 s (so single spikes are ignored), a pulsing red full-screen alert appears over
 whatever page is open, showing the value, its 10 min change and the threshold. It has
 *See trend* and *Dismiss* buttons. Once dismissed, it only comes back when a new alert
 starts, i.e. after K⁺ has dropped back below the threshold and risen again.
@@ -200,10 +200,11 @@ every 90 s so you can practise calibration.
 |---|---|---|
 | K⁺ alert threshold | Settings / Kconfig | 6.0 mM, a bench placeholder, **not** a clinical cut-off |
 | Stability criteria for capture | `ui/ui_calib.c` | SD ≤ 0.5 mV, drift ≤ 1 mV over 30 s |
+| Alert hold | `Kconfig.projbuild` (`GW_K_ALERT_HOLD_S`) | K⁺ must stay above the threshold for 5 s |
 | Motion thresholds | `housekeeping.c` | \|a\| ±0.15 g or 40 °/s |
 | "Normal" band on the gauge | `ui/ui_internal.h` | below 5.0 mM |
 | Trend arrow thresholds | `ui/ui_face.c` | ±0.3 mM/10 min notable, +1.0 fast |
-| Sample rate | sensor MCU | 1 Hz assumed |
+| Sample rate | front end | any; history is per second |
 | Standards offered | `ui/ui_calib.c` | listed above |
 | Temperature compensation | — | none yet; the slope % is reported against 25 °C |
 

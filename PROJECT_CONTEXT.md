@@ -2,8 +2,9 @@
 
 Handoff summary: the *why* and the current state, which the code alone does not show.
 For wiring, protocol, build steps and usage, see [README.md](README.md).
+For the plan to get real biosensor data onto the watch, see [ROADMAP.md](ROADMAP.md).
 
-*Last updated: 4 Nov 2026*
+*Last updated: 5 Nov 2026*
 
 ---
 
@@ -55,8 +56,12 @@ BLE, haptics) read snapshots or receive callbacks. The UI never touches hardware
 | Concentration used in place of activity | Acceptable if standards share the samples' ionic background |
 | K⁺ alert with hysteresis (0.3 mM) | Prevents the alert flickering when readings sit near the threshold |
 | Demo mode, clearly labelled DEMO everywhere | Lets the whole system be demonstrated without sensors, with no risk of being mistaken for data |
-| Swipe navigation, dial-style watch face, full-screen alert | Redesign requested after the first version looked too basic |
+| Swipe navigation, dial-style watch face, full-screen alert | Readable at a glance on a wrist: zone colours show the state before the number is read |
 | LVGL draw buffer reduced to 40 lines; 64 KB internal RAM reserved | Found on first hardware run: screen updates failed once Bluetooth was added (see §5) |
+| History stored per **second** as raw mV, converted on read | Charts, trend rate and the 30 min window stay correct at any front-end sample rate. Gaps show as gaps. Calibrating after a run fixes the past 30 min immediately |
+| K⁺ alert needs 5 s above threshold (`GW_K_ALERT_HOLD_S`) | Real electrodes spike (cable movement, ADC glitches), so a single sample must not buzz the wrist |
+| Saturated or faulted samples are never converted or averaged | A clipped ADC value would otherwise become a false concentration or alert |
+| BLE notifications capped at 1 per second | A 10–100 Hz front end would otherwise flood the link |
 | Private GitHub repo, commits under the GitHub noreply email | Backup and syncing to the claude.ai project; avoids exposing the Mac's hostname |
 
 ## 4. Hardware facts (from the schematic and testing)
@@ -100,8 +105,34 @@ BLE, haptics) read snapshots or receive callbacks. The UI never touches hardware
 - The alert overlay and vibration on hardware; BLE from a phone; SD card logging.
 - **No real electrode data yet.**
 
+### Code review for real sensor data (5 Nov 2026)
+Fixed problems that demo data hid:
+- **Sample-rate assumption.** History, trends, sparkline and the 10 min rate counted samples as
+  seconds, so at 10 Hz "30 min" was 3 min. Link gaps were squashed out of charts.
+  History is now per second.
+- **Saturation flag ignored.** Clipped readings were converted to concentrations.
+- **No alert debouncing.** One spike could trigger the alert and vibration.
+- **Calibration did not apply to the past.** History now stores mV and converts on read.
+- **BLE flooding at high rates**, and silently dropped log rows (now counted, shown in `status`).
+
+Checked and fine: frame parsing and resync, sequence and drop counting (including sensor
+reboots), the demo/real separation, locking between tasks, NVS versioning, and the logger's
+full-disk handling. Every source (UART, USB `frame`, a future I2C ADC) goes through the single
+entry point `app_state_push_frame()`, so adding a front end needs no changes elsewhere.
+
+The ESP-IDF clang-tidy run could not analyse the code: it needs the clang toolchain, and this
+project builds with GCC. Coverage comes instead from GCC `-Wall -Wextra` (clean) and host unit
+tests under ASan/UBSan.
+
 ### Verified on the computer
 - 66 unit checks (parser, calibration, Nernst) under ASan/UBSan.
+- 30 checks on the data hub (`app_state`):
+  - 10 Hz input still gives 30 min of history
+  - gaps stay gaps
+  - saturation is excluded
+  - alert hold and hysteresis
+  - re-calibration applies to the past
+  - demo/real separation and drop counting
 - Python ↔ C protocol contract test.
 - UTC date maths checked against the system's `timegm`.
 - UI renderer screenshots of every page and state: `./test/sim/run.sh`.
@@ -122,12 +153,13 @@ BLE, haptics) read snapshots or receive callbacks. The UI never touches hardware
 | Item | Where | Current value |
 |---|---|---|
 | K⁺ alert threshold | Settings / `Kconfig.projbuild` | 6.0 mM, **not** a clinical cut-off |
+| Alert hold time | `Kconfig.projbuild` (`GW_K_ALERT_HOLD_S`) | 5 s above threshold before alerting |
 | "Normal" band on the gauge | `ui/ui_internal.h` | below 5.0 mM |
 | Trend arrow thresholds | `ui/ui_face.c` | ±0.3 mM/10 min notable, +1.0 fast |
 | Calibration stability rule | `ui/ui_calib.c` | SD ≤ 0.5 mV and drift ≤ 1 mV over 30 s |
 | Standards offered | `ui/ui_calib.c` | K⁺ 0.1/1/10/100 mM; pH 4.01/6.86/7.00/9.18/10.01 |
 | Motion flag thresholds | `housekeeping.c` | \|a\| deviation 0.15 g or 40 °/s |
-| Sample rate | front end | 1 Hz assumed (trend spans and 30 min history depend on it) |
+| Sample rate | front end | any rate works; history and charts are per second (1–10 Hz is sensible for ISEs) |
 | Temperature compensation | — | none yet |
 
 ## 8. Open questions for the lab / supervisor

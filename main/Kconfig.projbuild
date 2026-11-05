@@ -59,6 +59,14 @@ menu "Guder Watch"
                 This is a placeholder for bench testing, NOT a clinically
                 validated cut-off. Adjustable on the watch in Settings.
 
+        config GW_K_ALERT_HOLD_S
+            int "K+ must stay above the threshold this long before alerting (s)"
+            range 0 120
+            default 5
+            help
+                Stops single spikes (cable movement, ADC glitches) from
+                triggering the alert. 0 = alert on the first sample.
+
         config GW_K_ALERT_HYSTERESIS_CENTI_MM
             int "Alert hysteresis (hundredths of mM)"
             default 30

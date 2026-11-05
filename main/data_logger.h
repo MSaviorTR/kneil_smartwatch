@@ -32,6 +32,7 @@ typedef struct
     log_store_t store;
     char        file[40];       /* current data file name, "" if none */
     uint32_t    rows;           /* rows written since boot */
+    uint32_t    dropped;        /* readings lost because the queue was full */
     uint64_t    total_bytes;
     uint64_t    free_bytes;
     bool        full;           /* stopped: below GW_LOG_MIN_FREE_KB */

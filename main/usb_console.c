@@ -91,8 +91,9 @@ static int cmd_status(int argc, char **argv)
     data_logger_status(&lg);
 
     static const char *store[] = { "none", "sd", "flash" };
-    printf("logging  %s  file=%s rows=%lu free=%llu/%llu KB%s%s\n",
+    printf("logging  %s  file=%s rows=%lu dropped=%lu free=%llu/%llu KB%s%s\n",
            store[lg.store], lg.file[0] ? lg.file : "-", (unsigned long)lg.rows,
+           (unsigned long)lg.dropped,
            (unsigned long long)(lg.free_bytes / 1024),
            (unsigned long long)(lg.total_bytes / 1024),
            lg.full ? " FULL" : "", lg.error ? " ERROR" : "");

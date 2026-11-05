@@ -9,7 +9,7 @@
 
 /* Chart resolution. Longer spans are averaged down to this many points. */
 #define CHART_POINTS   240
-#define MAX_SAMPLES    1800      /* app_state history length (30 min @ 1 Hz) */
+#define MAX_SAMPLES    1800      /* app_state history: 30 min, one value per second */
 #define CHART_W        (UI_W - 2 * UI_PAD)
 #define CHART_H        130
 #define SCALE          100       /* charts hold value * 100 as int32 */
@@ -202,13 +202,14 @@ void ui_trend_refresh(void)
     }
 
     int span = SPANS_S[span_idx];
-    int n = app_state_history(buf_k, buf_ph, span);
+    /* One value per second over the span, gaps as NAN. */
+    app_state_history(buf_k, buf_ph, span);
 
     app_settings_t s;
     app_state_get_settings(&s);
 
-    fill_chart(&k_trend, buf_k, n, span, 2, 1.0f, s.k_alert_mM);
-    fill_chart(&ph_trend, buf_ph, n, span, 2, 0.4f, NAN);
+    fill_chart(&k_trend, buf_k, span, span, 2, 1.0f, s.k_alert_mM);
+    fill_chart(&ph_trend, buf_ph, span, span, 2, 0.4f, NAN);
 
     data_source_t src = app_state_active_source();
 

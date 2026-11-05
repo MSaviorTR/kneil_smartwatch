@@ -474,8 +474,14 @@ static void on_reading(const reading_t *r)
 {
     log_msg_t m = { .type = MSG_READING, .reading = *r };
 
-    /* Never block the sensor path; a full queue just drops one row. */
-    xQueueSend(queue, &m, 0);
+    /* Never block the sensor path; a full queue drops the reading, and
+       that is counted so data loss is visible in `status`. */
+    if(xQueueSend(queue, &m, 0) != pdTRUE)
+    {
+        xSemaphoreTake(status_lock, portMAX_DELAY);
+        status.dropped++;
+        xSemaphoreGive(status_lock);
+    }
 }
 
 /* ------------------------------------------------------------------ */

@@ -309,14 +309,21 @@ static void notify(uint16_t handle, const void *data, uint16_t len)
     }
 }
 
+#define NOTIFY_MIN_INTERVAL_MS 1000
+
 static void on_reading(const reading_t *r)
 {
-    (void)r;
+    /* At most one notification per second: a fast front end (10-100 Hz)
+       would otherwise flood the link and the phone. The value sent is
+       always the latest reading. */
+    static int64_t last_ms = INT64_MIN / 2;
 
-    if(!live_subscribed)
+    if(!live_subscribed || r->uptime_ms - last_ms < NOTIFY_MIN_INTERVAL_MS)
     {
         return;
     }
+
+    last_ms = r->uptime_ms;
 
     char buf[128];
     int n = format_reading(buf, sizeof(buf));

@@ -97,12 +97,14 @@ bool app_state_link_alive(void);
 void app_state_motion(motion_state_t *out);
 bool app_state_power(power_status_t *out);
 
-/* Copies up to max most-recent calibrated values (oldest first) for
-   charting. NAN marks a gap. Returns the number copied. */
-int app_state_history(float *k_mM, float *ph, int max);
+/* Fills `seconds` values per array, one per second, oldest first, ending
+   with the current second. NAN = no valid data that second (gap, fault,
+   uncalibrated). Values use the calibration in force now. Independent of
+   the front end's sample rate. Returns how many seconds held data. */
+int app_state_history(float *k_mM, float *ph, int seconds);
 
-/* Mean / SD / drift of raw mV over the last window_s seconds from the
-   active source, for calibration capture. drift = last - first (mV). */
+/* Mean / SD / drift of raw mV over the last window_s seconds, computed
+   on per-second means, for calibration capture. drift = last - first. */
 typedef struct
 {
     float mean_mv;

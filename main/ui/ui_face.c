@@ -35,7 +35,7 @@
 #define PH_MAX          850
 
 #define SPARK_POINTS    60
-#define HISTORY_LEN     1800    /* 30 min at 1 Hz */
+#define HISTORY_LEN     1800    /* 30 min, one value per second */
 
 #define ANIM_MS         600
 
@@ -446,6 +446,12 @@ static void refresh_gauge(const reading_t *r, bool have, data_source_t active, f
         return;
     }
 
+    if(r->flags & SENSOR_FLAG_SATURATED)
+    {
+        gauge_inactive("ERR", "input out of range", UI_COL_ALERT, mv);
+        return;
+    }
+
     if(!isfinite(r->k_mv))
     {
         gauge_inactive("--", "K+ channel not sent", UI_COL_DIM, "");
@@ -498,7 +504,8 @@ static void refresh_gauge(const reading_t *r, bool have, data_source_t active, f
 
 static void refresh_ph(const reading_t *r, bool have, data_source_t active)
 {
-    bool ok = have && active != DATA_SRC_NONE && !(r->flags & SENSOR_FLAG_PH_FAULT) && isfinite(r->ph);
+    const uint32_t bad = SENSOR_FLAG_PH_FAULT | SENSOR_FLAG_SATURATED;
+    bool ok = have && active != DATA_SRC_NONE && !(r->flags & bad) && isfinite(r->ph);
 
     if(!ok)
     {
@@ -507,9 +514,10 @@ static void refresh_ph(const reading_t *r, bool have, data_source_t active)
 
         const char *why = !have || active == DATA_SRC_NONE ? "" :
                           (r->flags & SENSOR_FLAG_PH_FAULT) ? "fault" :
+                          (r->flags & SENSOR_FLAG_SATURATED) ? "out of range" :
                           isfinite(r->ph_mv) ? "uncalibrated" : "";
 
-        lv_label_set_text(ph_value_lbl, (r->flags & SENSOR_FLAG_PH_FAULT) && have ? "ERR" : "--");
+        lv_label_set_text(ph_value_lbl, (r->flags & bad) && have ? "ERR" : "--");
         lv_label_set_text(ph_note_lbl, why);
         lv_obj_set_style_text_color(ph_note_lbl, UI_COL_WARN, 0);
         return;
@@ -550,11 +558,17 @@ void ui_face_refresh(void)
 
 float ui_k_rate_per_10min(void)
 {
+    /* Mean of the newest 30 s compared with the mean of a 30 s block 10 min
+       earlier (or the oldest block available, if at least 90 s back),
+       scaled to mM per 10 min. Works in seconds, not samples, so the
+       front end's sample rate does not matter. */
+    enum { WIN = 30, LAG = 600, SPAN = LAG + WIN, MIN_LAG = 90 };
+
     static float *buf;
 
     if(buf == NULL)
     {
-        buf = heap_caps_malloc(HISTORY_LEN * sizeof(float), MALLOC_CAP_SPIRAM);
+        buf = heap_caps_malloc(SPAN * sizeof(float), MALLOC_CAP_SPIRAM);
 
         if(buf == NULL)
         {
@@ -562,38 +576,44 @@ float ui_k_rate_per_10min(void)
         }
     }
 
-    int n = app_state_history(buf, NULL, HISTORY_LEN);
-
-    /* Compare the newest 30 samples with 30 samples up to 10 min earlier;
-       scale to 10 min if the history is shorter. Needs >= 2 min. */
-    const int win = 30;
-
-    if(n < 120)
+    if(app_state_history(buf, NULL, SPAN) == 0)
     {
         return NAN;
     }
 
-    int lag = (n - win >= 600) ? 600 : n - win;
+    int first = 0;
+
+    while(first < SPAN && !isfinite(buf[first]))
+    {
+        first++;
+    }
+
+    int lag = LAG - first;
+
+    if(lag < MIN_LAG)
+    {
+        return NAN;
+    }
 
     double a = 0.0, b = 0.0;
     int na = 0, nb = 0;
 
-    for(int i = n - win; i < n; i++)
+    for(int i = SPAN - WIN; i < SPAN; i++)
     {
         if(isfinite(buf[i])) { a += buf[i]; na++; }
     }
 
-    for(int i = n - win - lag; i < n - lag; i++)
+    for(int i = first; i < first + WIN; i++)
     {
-        if(i >= 0 && isfinite(buf[i])) { b += buf[i]; nb++; }
+        if(isfinite(buf[i])) { b += buf[i]; nb++; }
     }
 
-    if(na < win / 2 || nb < win / 2)
+    if(na < WIN / 2 || nb < WIN / 2)
     {
         return NAN;
     }
 
-    return (float)((a / na - b / nb) * 600.0 / lag);
+    return (float)((a / na - b / nb) * (double)LAG / lag);
 }
 
 void ui_face_refresh_slow(void)
@@ -603,7 +623,8 @@ void ui_face_refresh_slow(void)
         return;
     }
 
-    int n = app_state_history(hist, NULL, HISTORY_LEN);
+    int have = app_state_history(hist, NULL, HISTORY_LEN);
+    const int n = HISTORY_LEN;   /* always a full, time-aligned window */
     int32_t *y = lv_chart_get_series_y_array(spark, spark_ser);
     int per = HISTORY_LEN / SPARK_POINTS;
     float lo = INFINITY, hi = -INFINITY;
@@ -657,7 +678,7 @@ void ui_face_refresh_slow(void)
 
     if(!isfinite(rate))
     {
-        lv_label_set_text(trend_lbl, !n ? "" : finite ? "collecting trend..." : "no calibrated data");
+        lv_label_set_text(trend_lbl, !have ? "" : finite ? "collecting trend..." : "no calibrated data");
         lv_obj_set_style_text_color(trend_lbl, UI_COL_DIM, 0);
     }
     else if(fabsf(rate) < RATE_NOTABLE)

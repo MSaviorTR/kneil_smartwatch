@@ -15,8 +15,10 @@
 
 static const char *TAG = "state";
 
-/* 30 min at 1 Hz. Lives in PSRAM. */
-#define HISTORY_LEN        1800
+/* History is kept per second, whatever rate the front end samples at:
+   one slot per second for 30 min, direct-mapped by (second % HISTORY_S).
+   Lives in PSRAM. */
+#define HISTORY_S          1800
 #define MAX_LISTENERS      4
 #define DEMO_STALE_MS      3000
 #define SEQ_RESTART_GAP    1000   /* bigger jumps = sensor MCU rebooted */
@@ -35,14 +37,17 @@ static const cal_fit_t DEMO_CAL[CAL_CHANNEL_COUNT] = {
     [CAL_CHANNEL_PH] = { .slope = -57.5f, .intercept = 410.0f, .r2 = 1.0f, .n_points = 2, .valid = true },
 };
 
+/* Raw millivolts only. Concentrations are worked out on read with the
+   calibration in force at that moment, so calibrating after a run
+   immediately re-renders the past 30 min correctly. */
 typedef struct
 {
-    int64_t uptime_ms;
-    float   k_mv;
-    float   ph_mv;
-    float   k_mM;
-    float   ph;
-} hist_entry_t;
+    int32_t  sec;          /* uptime second this slot holds; -1 = empty */
+    float    k_mv_sum;
+    float    ph_mv_sum;
+    uint16_t k_n;
+    uint16_t ph_n;
+} hist_slot_t;
 
 typedef struct
 {
@@ -64,9 +69,7 @@ static cal_fit_t      cal[CAL_CHANNEL_COUNT];
 static reading_t      latest;
 static bool           have_latest;
 static data_source_t  history_source = DATA_SRC_NONE;
-static hist_entry_t  *history;
-static int            hist_head;   /* next write index */
-static int            hist_count;
+static hist_slot_t   *history;
 
 static link_stats_t   link;
 static bool           have_seq;
@@ -77,6 +80,7 @@ static power_status_t power;
 static bool           have_power;
 
 static bool           alert_active;
+static int64_t        above_since_ms = -1;   /* K+ continuously >= threshold since */
 
 static reading_listener_t listeners[MAX_LISTENERS];
 static int                listener_count;
@@ -95,6 +99,26 @@ static int64_t now_epoch_ms(void)
 static int64_t uptime_ms(void)
 {
     return esp_timer_get_time() / 1000;
+}
+
+static int32_t uptime_s(void)
+{
+    return (int32_t)(esp_timer_get_time() / 1000000);
+}
+
+static void history_clear(void)
+{
+    for(int i = 0; i < HISTORY_S; i++)
+    {
+        history[i].sec = -1;
+    }
+}
+
+/* Validity of one channel in a frame: present, finite, not faulted, and
+   the front end not clipping (a saturated ADC gives a meaningless value). */
+static bool channel_ok(float mv, uint32_t flags, uint32_t fault_flag)
+{
+    return isfinite(mv) && !(flags & (fault_flag | SENSOR_FLAG_SATURATED));
 }
 
 static bool link_alive_locked(void)
@@ -215,13 +239,15 @@ esp_err_t app_state_init(void)
 
     lock = xSemaphoreCreateMutex();
 
-    history = heap_caps_calloc(HISTORY_LEN, sizeof(hist_entry_t),
+    history = heap_caps_calloc(HISTORY_S, sizeof(hist_slot_t),
                                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 
     if(lock == NULL || history == NULL)
     {
         return ESP_ERR_NO_MEM;
     }
+
+    history_clear();
 
     load_nvs();
 
@@ -276,10 +302,10 @@ void app_state_push_frame(const sensor_frame_t *frame, data_source_t source)
        so never re-evaluated) data. */
     if(source != history_source)
     {
-        hist_head = 0;
-        hist_count = 0;
+        history_clear();
         history_source = source;
         alert_active = false;
+        above_since_ms = -1;
     }
 
     const cal_fit_t *fits = (source == DATA_SRC_DEMO) ? DEMO_CAL : cal;
@@ -294,31 +320,50 @@ void app_state_push_frame(const sensor_frame_t *frame, data_source_t source)
     r.temp_c    = frame->temp_c;
     r.flags     = frame->flags;
 
-    r.k_mM = (frame->flags & SENSOR_FLAG_K_FAULT)
-           ? NAN : cal_k_mv_to_mM(&fits[CAL_CHANNEL_K], frame->k_mv);
+    bool k_ok  = channel_ok(frame->k_mv, frame->flags, SENSOR_FLAG_K_FAULT);
+    bool ph_ok = channel_ok(frame->ph_mv, frame->flags, SENSOR_FLAG_PH_FAULT);
 
-    r.ph = (frame->flags & SENSOR_FLAG_PH_FAULT)
-         ? NAN : cal_mv_to_x(&fits[CAL_CHANNEL_PH], frame->ph_mv);
+    r.k_mM = k_ok  ? cal_k_mv_to_mM(&fits[CAL_CHANNEL_K], frame->k_mv) : NAN;
+    r.ph   = ph_ok ? cal_mv_to_x(&fits[CAL_CHANNEL_PH], frame->ph_mv) : NAN;
 
     r.accel_mag_g = motion.valid ? motion.accel_mag_g : NAN;
     r.motion      = motion.valid && motion.motion;
     r.battery_pct = have_power ? power.percent : -1;
 
-    /* Alert with hysteresis so noise around the threshold does not buzz
-       the wrist every second. Unknown concentration never changes state. */
+    /* Alert rules, tuned for real electrodes rather than clean demo data:
+       - it fires only after K+ has stayed at/above the threshold for
+         GW_K_ALERT_HOLD_S, so a single spike (cable movement, ADC glitch)
+         does not buzz the wrist;
+       - it clears below threshold minus hysteresis, so noise around the
+         threshold does not toggle it;
+       - an unknown concentration never changes the state. */
     if(isfinite(r.k_mM))
     {
         float hyst = CONFIG_GW_K_ALERT_HYSTERESIS_CENTI_MM / 100.0f;
 
-        if(!alert_active && r.k_mM >= settings.k_alert_mM)
+        if(r.k_mM >= settings.k_alert_mM)
         {
-            alert_active = true;
-            alert_edge = true;
+            if(above_since_ms < 0)
+            {
+                above_since_ms = r.uptime_ms;
+            }
+
+            if(!alert_active &&
+               r.uptime_ms - above_since_ms >= (int64_t)CONFIG_GW_K_ALERT_HOLD_S * 1000)
+            {
+                alert_active = true;
+                alert_edge = true;
+            }
         }
-        else if(alert_active && r.k_mM < settings.k_alert_mM - hyst)
+        else
         {
-            alert_active = false;
-            alert_edge = true;
+            above_since_ms = -1;
+
+            if(alert_active && r.k_mM < settings.k_alert_mM - hyst)
+            {
+                alert_active = false;
+                alert_edge = true;
+            }
         }
     }
 
@@ -327,18 +372,25 @@ void app_state_push_frame(const sensor_frame_t *frame, data_source_t source)
     latest = r;
     have_latest = true;
 
-    hist_entry_t *e = &history[hist_head];
-    e->uptime_ms = r.uptime_ms;
-    e->k_mv      = r.k_mv;
-    e->ph_mv     = r.ph_mv;
-    e->k_mM      = r.k_mM;
-    e->ph        = r.ph;
+    /* Accumulate into this second's slot (reset if it held an older second). */
+    int32_t sec = (int32_t)(r.uptime_ms / 1000);
+    hist_slot_t *slot = &history[sec % HISTORY_S];
 
-    hist_head = (hist_head + 1) % HISTORY_LEN;
-
-    if(hist_count < HISTORY_LEN)
+    if(slot->sec != sec)
     {
-        hist_count++;
+        *slot = (hist_slot_t){ .sec = sec };
+    }
+
+    if(k_ok && slot->k_n < UINT16_MAX)
+    {
+        slot->k_mv_sum += frame->k_mv;
+        slot->k_n++;
+    }
+
+    if(ph_ok && slot->ph_n < UINT16_MAX)
+    {
+        slot->ph_mv_sum += frame->ph_mv;
+        slot->ph_n++;
     }
 
     reading_listener_t ls[MAX_LISTENERS];
@@ -457,58 +509,82 @@ bool app_state_power(power_status_t *out)
     return ok;
 }
 
-int app_state_history(float *k_mM, float *ph, int max)
+int app_state_history(float *k_mM, float *ph, int seconds)
 {
+    if(seconds > HISTORY_S)
+    {
+        seconds = HISTORY_S;
+    }
+
     xSemaphoreTake(lock, portMAX_DELAY);
 
-    int n = (hist_count < max) ? hist_count : max;
-    int start = (hist_head - n + HISTORY_LEN) % HISTORY_LEN;
+    const cal_fit_t *fits = (history_source == DATA_SRC_DEMO) ? DEMO_CAL : cal;
+    int32_t now = uptime_s();
+    int with_data = 0;
 
-    for(int i = 0; i < n; i++)
+    for(int i = 0; i < seconds; i++)
     {
-        const hist_entry_t *e = &history[(start + i) % HISTORY_LEN];
+        int32_t sec = now - (seconds - 1) + i;
+        const hist_slot_t *slot = (sec >= 0) ? &history[sec % HISTORY_S] : NULL;
+        bool here = slot != NULL && slot->sec == sec;
 
-        if(k_mM) k_mM[i] = e->k_mM;
-        if(ph)   ph[i]   = e->ph;
+        float k = (here && slot->k_n) ? cal_k_mv_to_mM(&fits[CAL_CHANNEL_K], slot->k_mv_sum / slot->k_n) : NAN;
+        float p = (here && slot->ph_n) ? cal_mv_to_x(&fits[CAL_CHANNEL_PH], slot->ph_mv_sum / slot->ph_n) : NAN;
+
+        if(k_mM) k_mM[i] = k;
+        if(ph)   ph[i]   = p;
+
+        if(here && (slot->k_n || slot->ph_n))
+        {
+            with_data++;
+        }
     }
 
     xSemaphoreGive(lock);
-    return n;
+    return with_data;
 }
 
 bool app_state_window_stats(cal_channel_t ch, int window_s, window_stats_t *out)
 {
+    if(window_s > HISTORY_S)
+    {
+        window_s = HISTORY_S;
+    }
+
     xSemaphoreTake(lock, portMAX_DELAY);
 
-    int64_t cutoff = uptime_ms() - (int64_t)window_s * 1000;
+    int32_t now = uptime_s();
     double sum = 0.0;
     double sum2 = 0.0;
     int n = 0;
     float newest = NAN;
     float oldest = NAN;
 
-    for(int i = 0; i < hist_count; i++)
+    /* Oldest to newest over the window, one value per second (the mean of
+       that second), so stability does not depend on the sample rate. */
+    for(int32_t sec = now - window_s + 1; sec <= now; sec++)
     {
-        const hist_entry_t *e = &history[(hist_head - 1 - i + HISTORY_LEN) % HISTORY_LEN];
-
-        if(e->uptime_ms < cutoff)
-        {
-            break;
-        }
-
-        float v = (ch == CAL_CHANNEL_K) ? e->k_mv : e->ph_mv;
-
-        if(!isfinite(v))
+        if(sec < 0)
         {
             continue;
         }
 
-        if(n == 0)
+        const hist_slot_t *slot = &history[sec % HISTORY_S];
+        uint16_t cnt = (ch == CAL_CHANNEL_K) ? slot->k_n : slot->ph_n;
+
+        if(slot->sec != sec || cnt == 0)
         {
-            newest = v;
+            continue;
         }
 
-        oldest = v;
+        float v = ((ch == CAL_CHANNEL_K) ? slot->k_mv_sum : slot->ph_mv_sum) / cnt;
+
+        if(n == 0)
+        {
+            oldest = v;
+        }
+
+        newest = v;
         sum  += v;
         sum2 += (double)v * v;
         n++;
