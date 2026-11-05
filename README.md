@@ -16,6 +16,8 @@ The sensor MCU only measures and sends **raw millivolts**. Everything that
 depends on the electrodes — calibration, concentration, alerts — lives on the
 watch, so new electrodes never need new sensor-MCU firmware.
 
+> **New here?** Start with [GUIDE.md](GUIDE.md): flashing, using and changing the watch, step by step.
+
 > **Status:** firmware builds and the parser and calibration maths are unit-tested
 > on the host. It has **not yet run on the watch hardware**.
 > The sensor MCU and its analog front end don't exist yet. Use demo mode or
