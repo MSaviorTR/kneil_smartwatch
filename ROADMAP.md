@@ -30,6 +30,31 @@ Phase 0  decide          → Phase 1  real data via lab instrument  → Phase 2 
 
 ---
 
+## Next up — Replay recorded OCP data (planned, about 1 hour)
+
+**Idea:** play back the OCP runs already recorded with the biosensor, as if the sensor were
+live, to test the watch on real electrode behaviour before any new hardware exists.
+
+**Data:**
+- `~/Desktop/guderlab/step data/OCP_data.xlsx`: 4→8 mM steps, 2.5 h at 1 Hz, in volts.
+- `OCP_calibration.csv`: the MATLAB plateau fit, 46.6 mV/decade, R² 0.996.
+- `~/Desktop/guderlab/guder lab data /`: a 72 h stability run and a 4–8 mM run on Channel 2.
+
+**Work:**
+- `tools/live_bridge.py --replay FILE --speed N`: reads `.xlsx`/`.csv` (`s`, `V` columns)
+  and paces frames by the `s` column.
+- Calibration page standards changed to the lab's **4 / 5 / 6 / 7 / 8 mM**.
+- Review the "sub-Nernstian" verdict wording with the supervisor, since 79 % may be acceptable
+  for this electrode.
+
+**Checks:**
+- The watch's calibration of the step run matches the MATLAB fit.
+- Plateaus reach STABLE.
+- The alert fires near the 6→7 mM step.
+- The 72 h run at high speed shows the effect of drift.
+
+---
+
 ## Phase 1 — Real electrodes through the lab instrument (1–2 weeks)
 
 ```
