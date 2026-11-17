@@ -151,7 +151,36 @@ build time. You can set it three ways:
 
 ## Bluetooth
 
-The device appears as `GuderWatch` and works with any generic BLE app (e.g. nRF Connect).
+The watch runs **two BLE roles, separately or at the same time**. Choose with
+Settings → **Mode**: *Phone only* / *Sensor only* / *Phone + sensor* (the default).
+
+| Role | Direction | What happens |
+|---|---|---|
+| **Peripheral** ("Phone") | data **out** | The watch advertises as `GuderWatch`; a phone connects to it |
+| **Central** ("Sensor") | data **in** | The watch scans for a wireless Guder sensor, connects, subscribes, and feeds its frames into the same pipeline as the wired link |
+
+The Bluetooth icon on the watch face shows **green** when a sensor is sending data and
+**blue** when a phone is connected. The Diagnostics page and `status` show both roles.
+
+### Wireless sensor (watch = central)
+
+A wireless sensor must:
+
+| | |
+|---|---|
+| Advertise service | `6e7a0010-3c1f-4b8e-9d2a-5f4c1b2a7e90`, or use a name starting with `GuderSensor` (`GW_BLE_SENSOR_NAME_PREFIX`) |
+| Offer characteristic | `6e7a0011-3c1f-4b8e-9d2a-5f4c1b2a7e90` with **NOTIFY** |
+| Send | `$GKS` frames (same format as the UART link): one frame per notification, newline optional, or a stream split freely with newlines |
+
+The watch requests a 256-byte MTU, so a whole frame (~65 bytes) fits in one notification.
+It reconnects automatically if the sensor drops out.
+
+Test without hardware: `tools/ble_sensor_emulator.py` makes the Mac act as the sensor
+(needs `python -m pip install bless`).
+
+### Phone (watch = peripheral)
+
+The watch works with any generic BLE app (e.g. nRF Connect).
 
 | Characteristic | UUID | Access |
 |---|---|---|

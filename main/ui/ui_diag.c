@@ -15,6 +15,7 @@ static lv_obj_t *link_lbl;
 static lv_obj_t *raw_lbl;
 static lv_obj_t *imu_lbl;
 static lv_obj_t *sys_lbl;
+static lv_obj_t *ble_lbl;
 
 static lv_obj_t *section(lv_obj_t *parent, const char *icon, const char *title)
 {
@@ -39,6 +40,7 @@ void ui_diag_create(lv_obj_t *tile)
     link_lbl = section(page, LV_SYMBOL_SHUFFLE, "SENSOR LINK");
     raw_lbl  = section(page, LV_SYMBOL_CHARGE, "RAW SIGNALS");
     imu_lbl  = section(page, LV_SYMBOL_GPS, "WATCH IMU");
+    ble_lbl  = section(page, LV_SYMBOL_BLUETOOTH, "BLUETOOTH");
     sys_lbl  = section(page, LV_SYMBOL_SETTINGS, "SYSTEM");
 }
 
@@ -127,13 +129,36 @@ void ui_diag_refresh(void)
         snprintf(batt, sizeof(batt), have_p && p.usb_connected ? "no cell, USB" : "unknown");
     }
 
-    snprintf(buf, sizeof(buf), "battery %s\nlog %s  %s\nrows %lu  free %llu KB%s\nclock %s   BLE %s",
+    snprintf(buf, sizeof(buf), "battery %s\nlog %s  %s\nrows %lu  free %llu KB%s\nclock %s",
              batt, store[lg.store], lg.file[0] ? lg.file : "-",
              (unsigned long)lg.rows, (unsigned long long)(lg.free_bytes / 1024),
              lg.full ? "  FULL" : lg.error ? "  ERROR" : "",
-             tsrc[rtc_service_time_source()],
-             ble_service_connected() ? "connected" :
-             ble_service_advertising() ? "advertising" : "off");
+             tsrc[rtc_service_time_source()]);
 
     lv_label_set_text(sys_lbl, buf);
+
+    /* Bluetooth: both roles */
+    ble_status_t bs;
+    ble_service_status(&bs);
+
+    static const char *mode_txt[] = { "phone only", "sensor only", "phone + sensor" };
+    bool phone_role  = bs.enabled && bs.mode != BLE_MODE_SENSOR;
+    bool sensor_role = bs.enabled && bs.mode != BLE_MODE_PHONE;
+    char sensor[64];
+
+    if(!sensor_role)               snprintf(sensor, sizeof(sensor), "off");
+    else if(bs.sensor_receiving)    snprintf(sensor, sizeof(sensor), "%s, %lu frames",
+                                            bs.sensor_name[0] ? bs.sensor_name : "receiving",
+                                            (unsigned long)bs.sensor_frames);
+    else if(bs.sensor_connected)    snprintf(sensor, sizeof(sensor), "connected, setting up");
+    else if(bs.sensor_scanning)     snprintf(sensor, sizeof(sensor), "searching...");
+    else                           snprintf(sensor, sizeof(sensor), "waiting to retry");
+
+    snprintf(buf, sizeof(buf), "mode %s\nphone (out): %s\nsensor (in): %s",
+             bs.enabled ? mode_txt[bs.mode % BLE_MODE_COUNT] : "Bluetooth off",
+             !phone_role ? "off" : bs.phone_connected ? "connected" :
+             bs.advertising ? "advertising" : "idle",
+             sensor);
+
+    lv_label_set_text(ble_lbl, buf);
 }

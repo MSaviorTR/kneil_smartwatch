@@ -8,6 +8,7 @@ idf_component_register(
         rtc_service.c
         data_logger.c
         ble_service.c
+        ble_central.c
         haptics.c
         housekeeping.c
         usb_console.c

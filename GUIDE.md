@@ -56,7 +56,7 @@ cd ~/Projects/ESP32/guder_watch && . ~/.espressif/v5.5.5/esp-idf/export.sh && id
 | **Trends** | K⁺ and pH charts; the button switches 5 min ↔ 30 min |
 | **Calibrate** | Calibrate the electrodes (below) |
 | **Diagnostics** | Raw mV, link counters, motion sensor, battery, storage, Bluetooth |
-| **Settings** | Bluetooth, vibration, **Demo data**, K⁺ alert level, brightness, set time, clear logs |
+| **Settings** | Bluetooth on/off and **Mode** (Phone / Sensor / Phone + sensor), vibration, **Demo data**, K⁺ alert level, brightness, set time, clear logs |
 
 - **Demo mode** (Settings → Demo data): fake but realistic data, labelled DEMO everywhere.
   Real data always replaces it.
@@ -195,8 +195,9 @@ changing the screens.
 | `main/app_state.*` | The notice board, alert rule, history | change alert behaviour |
 | `main/sensor_link.c` | UART receiver + demo data | change the demo |
 | `main/data_logger.c` | CSV logging | change log columns |
-| `main/ble_service.c` | Bluetooth | change what the phone gets |
-| `main/imu_service.c`, `power_service.cpp` | Motion sensor, battery (**yours**) | — |
+| `main/ble_service.c` | Bluetooth, phone side (peripheral) and mode switching | change what the phone gets |
+| `main/ble_central.c` | Bluetooth, sensor side (central): scan, connect, receive frames | change how the sensor is found |
+| `main/imu_service.c`, `power_service.cpp` | Motion sensor, battery  | — |
 | `main/ui/*.c` | The screens (LVGL) | change how things look |
 | `main/Kconfig.projbuild` | Adjustable settings (pins, defaults) | change defaults |
 | `sdkconfig.defaults` | ESP-IDF settings | change system options |

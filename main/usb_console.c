@@ -13,6 +13,7 @@
 #include "esp_timer.h"
 
 #include "app_state.h"
+#include "ble_service.h"
 #include "data_logger.h"
 #include "rtc_service.h"
 #include "sensor_protocol.h"
@@ -97,6 +98,16 @@ static int cmd_status(int argc, char **argv)
            (unsigned long long)(lg.free_bytes / 1024),
            (unsigned long long)(lg.total_bytes / 1024),
            lg.full ? " FULL" : "", lg.error ? " ERROR" : "");
+
+    ble_status_t b;
+    ble_service_status(&b);
+    static const char *bmode[] = { "phone", "sensor", "phone+sensor" };
+    printf("ble      %s  phone=%s  sensor=%s%s%s frames=%lu\n",
+           b.enabled ? bmode[b.mode % BLE_MODE_COUNT] : "OFF",
+           b.phone_connected ? "connected" : b.advertising ? "advertising" : "-",
+           b.sensor_receiving ? "receiving" : b.sensor_connected ? "connected" :
+           b.sensor_scanning ? "scanning" : "-",
+           b.sensor_name[0] ? " " : "", b.sensor_name, (unsigned long)b.sensor_frames);
 
     /* Internal DMA RAM is what the display and SPI need; watch this one. */
     printf("memory   internal DMA free %u KB (largest block %u KB), PSRAM free %u KB\n",

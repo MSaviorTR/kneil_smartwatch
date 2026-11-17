@@ -13,6 +13,7 @@
 #include "services/gatt/ble_svc_gatt.h"
 
 #include "app_state.h"
+#include "ble_central.h"
 #include "ble_service.h"
 #include "rtc_service.h"
 
@@ -33,6 +34,7 @@ static uint16_t live_handle;
 static uint16_t battery_handle;
 
 static volatile bool     enabled = true;
+static volatile uint8_t  mode = BLE_MODE_BOTH;
 static volatile bool     synced;
 static volatile uint16_t conn_handle = BLE_HS_CONN_HANDLE_NONE;
 static volatile bool     live_subscribed;
@@ -41,6 +43,11 @@ static volatile int      battery_pct = -1;
 static uint8_t           own_addr_type;
 
 static void start_advertising(void);
+
+/* Role switches. Peripheral = phone connects to us (data out). Central =
+   we connect to the wireless sensor (data in). Both may run together. */
+static bool peripheral_on(void) { return enabled && mode != BLE_MODE_SENSOR; }
+static bool central_on(void)    { return enabled && mode != BLE_MODE_PHONE; }
 
 /* ------------------------------------------------------------------
    GATT
@@ -179,9 +186,9 @@ static int gap_event(struct ble_gap_event *event, void *arg)
             if(event->connect.status == 0)
             {
                 conn_handle = event->connect.conn_handle;
-                ESP_LOGI(TAG, "connected");
+                ESP_LOGI(TAG, "phone connected");
 
-                if(!enabled)
+                if(!peripheral_on())
                 {
                     ble_gap_terminate(conn_handle, BLE_ERR_REM_USER_CONN_TERM);
                 }
@@ -224,7 +231,7 @@ static int gap_event(struct ble_gap_event *event, void *arg)
 
 static void start_advertising(void)
 {
-    if(!enabled || !synced || conn_handle != BLE_HS_CONN_HANDLE_NONE || ble_gap_adv_active())
+    if(!peripheral_on() || !synced || conn_handle != BLE_HS_CONN_HANDLE_NONE || ble_gap_adv_active())
     {
         return;
     }
@@ -273,11 +280,13 @@ static void on_sync(void)
     ble_hs_id_infer_auto(0, &own_addr_type);
     synced = true;
     start_advertising();
+    ble_central_on_sync(own_addr_type);
 }
 
 static void on_reset(int reason)
 {
     synced = false;
+    ble_central_on_reset();
     ESP_LOGW(TAG, "host reset, reason %d", reason);
 }
 
@@ -338,6 +347,7 @@ esp_err_t ble_service_start(void)
     app_settings_t s;
     app_state_get_settings(&s);
     enabled = s.ble_enabled;
+    mode    = s.ble_mode;
 
     esp_err_t err = nimble_port_init();
 
@@ -372,24 +382,27 @@ esp_err_t ble_service_start(void)
     }
 
     app_state_add_listener(on_reading);
+    ble_central_set_active(central_on());     /* takes effect once synced */
     nimble_port_freertos_init(host_task);
 
-    ESP_LOGI(TAG, "started as \"%s\" (advertising %s)", CONFIG_GW_BLE_DEVICE_NAME,
-             enabled ? "on" : "off");
+    static const char *MODE_TXT[] = { "phone", "sensor", "phone + sensor" };
+    ESP_LOGI(TAG, "started as \"%s\", mode %s%s", CONFIG_GW_BLE_DEVICE_NAME,
+             MODE_TXT[mode % BLE_MODE_COUNT], enabled ? "" : " (Bluetooth off)");
 
     return ESP_OK;
 }
 
-void ble_service_set_enabled(bool on)
+/* Brings both roles in line with `enabled` and `mode`. */
+static void apply_roles(void)
 {
-    enabled = on;
+    ble_central_set_active(central_on());
 
     if(!synced)
     {
         return;
     }
 
-    if(on)
+    if(peripheral_on())
     {
         start_advertising();
         return;
@@ -404,6 +417,35 @@ void ble_service_set_enabled(bool on)
     {
         ble_gap_terminate(conn_handle, BLE_ERR_REM_USER_CONN_TERM);
     }
+}
+
+void ble_service_set_enabled(bool on)
+{
+    enabled = on;
+    apply_roles();
+}
+
+void ble_service_set_mode(uint8_t new_mode)
+{
+    mode = (new_mode < BLE_MODE_COUNT) ? new_mode : BLE_MODE_BOTH;
+    apply_roles();
+}
+
+void ble_service_status(ble_status_t *out)
+{
+    ble_central_status_t c;
+    ble_central_status(&c);
+
+    out->enabled           = enabled;
+    out->mode              = mode;
+    out->phone_connected   = conn_handle != BLE_HS_CONN_HANDLE_NONE;
+    out->advertising       = synced && ble_gap_adv_active();
+    out->sensor_scanning   = c.scanning;
+    out->sensor_connected  = c.connected;
+    out->sensor_receiving  = c.subscribed;
+    out->sensor_frames     = c.frames;
+    memcpy(out->sensor_name, c.name, sizeof(out->sensor_name));
+    out->sensor_name[sizeof(out->sensor_name) - 1] = '\0';
 }
 
 bool ble_service_connected(void)

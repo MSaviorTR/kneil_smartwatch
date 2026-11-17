@@ -353,9 +353,14 @@ static void refresh_status(data_source_t active)
             break;
     }
 
+    /* Bluetooth icon: green = wireless sensor sending data, blue = phone
+       connected, grey = searching/advertising, dark = off. */
+    ble_status_t b;
+    ble_service_status(&b);
     lv_obj_set_style_text_color(ble_lbl,
-        ble_service_connected() ? UI_COL_BLE :
-        ble_service_advertising() ? UI_COL_DIM : UI_COL_FAINT, 0);
+        b.sensor_receiving ? UI_COL_OK :
+        b.phone_connected ? UI_COL_BLE :
+        (b.advertising || b.sensor_scanning) ? UI_COL_DIM : UI_COL_FAINT, 0);
 
     logger_status_t lg;
     data_logger_status(&lg);

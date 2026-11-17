@@ -25,7 +25,7 @@ static const char *TAG = "state";
 
 #define NVS_NAMESPACE      "gw"
 #define NVS_KEY_SETTINGS   "settings"
-#define SETTINGS_VERSION   1
+#define SETTINGS_VERSION   2   /* 2: added ble_mode */
 #define CAL_VERSION        1
 
 static const char *CAL_KEYS[CAL_CHANNEL_COUNT] = { "cal_k", "cal_ph" };
@@ -151,6 +151,7 @@ static data_source_t active_source_locked(void)
 static void settings_defaults(app_settings_t *s)
 {
     s->ble_enabled       = true;
+    s->ble_mode          = BLE_MODE_BOTH;
     s->vibration_enabled = true;
     s->demo_mode         = false;
     s->k_alert_mM        = CONFIG_GW_K_ALERT_DEFAULT_CENTI_MM / 100.0f;
@@ -181,6 +182,11 @@ static void load_nvs(void)
        len == sizeof(sb) && sb.version == SETTINGS_VERSION)
     {
         settings = sb.s;
+
+        if(settings.ble_mode >= BLE_MODE_COUNT)
+        {
+            settings.ble_mode = BLE_MODE_BOTH;
+        }
     }
 
     for(int ch = 0; ch < CAL_CHANNEL_COUNT; ch++)

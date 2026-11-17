@@ -53,9 +53,20 @@ typedef struct
     int64_t  last_frame_us;     /* esp_timer time, 0 = never */
 } link_stats_t;
 
+/* Which Bluetooth roles run. Both can run at once: central towards a
+   wireless sensor (data in), peripheral towards a phone (data out). */
+typedef enum
+{
+    BLE_MODE_PHONE = 0,    /* peripheral only: phone connects to the watch */
+    BLE_MODE_SENSOR,       /* central only: watch connects to the sensor   */
+    BLE_MODE_BOTH,         /* both at once                                 */
+    BLE_MODE_COUNT
+} ble_mode_t;
+
 typedef struct
 {
     bool    ble_enabled;
+    uint8_t ble_mode;           /* ble_mode_t */
     bool    vibration_enabled;
     bool    demo_mode;
     float   k_alert_mM;

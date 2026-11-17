@@ -170,6 +170,79 @@ static void test_line_assembler(void)
     CHECK(feed_string(&lb, "\r\n\n", lines, 4) == 0);
 }
 
+/* ---- BLE-style packet assembly ---------------------------------- */
+
+static char got_lines[8][160];
+static int got_n;
+
+static void collect(const char *line, void *ctx)
+{
+    (void)ctx;
+    if(got_n < 8) strcpy(got_lines[got_n++], line);
+}
+
+static int feed_packets(sensor_line_buf_t *lb, const char *const *pkts, int n)
+{
+    got_n = 0;
+    for(int i = 0; i < n; i++)
+    {
+        sensor_feed_chunk(lb, (const uint8_t *)pkts[i], strlen(pkts[i]), collect, NULL);
+    }
+    return got_n;
+}
+
+static void test_chunk_assembly(void)
+{
+    char f1[160], f2[160];
+    with_checksum("GKS,1,10,150.000,-20.000,36.0,0", f1, sizeof(f1));
+    with_checksum("GKS,2,20,151.000,-21.000,36.0,0", f2, sizeof(f2));
+
+    /* 1. One frame per notification, no newline (common for BLE sensors). */
+    sensor_line_buf_t lb = {0};
+    char a[160], b[160];
+    snprintf(a, sizeof(a), "%.*s", (int)(strlen(f1) - 2), f1);   /* strip CRLF */
+    snprintf(b, sizeof(b), "%.*s", (int)(strlen(f2) - 2), f2);
+    const char *p1[] = { a, b };
+    CHECK(feed_packets(&lb, p1, 2) == 2);
+    sensor_frame_t fr;
+    CHECK(sensor_protocol_parse(got_lines[0], &fr) == SENSOR_PARSE_OK && fr.seq == 1);
+    CHECK(sensor_protocol_parse(got_lines[1], &fr) == SENSOR_PARSE_OK && fr.seq == 2);
+
+    /* 2. A frame split across 20-byte packets (default BLE MTU), with CRLF. */
+    sensor_line_buf_t lb2 = {0};
+    char parts[8][32];
+    const char *pp[8];
+    int np = 0;
+    for(size_t off = 0; off < strlen(f1); off += 20, np++)
+    {
+        snprintf(parts[np], sizeof(parts[np]), "%.20s", f1 + off);
+        pp[np] = parts[np];
+    }
+    CHECK(feed_packets(&lb2, pp, np) == 1);
+    CHECK(sensor_protocol_parse(got_lines[0], &fr) == SENSOR_PARSE_OK && fr.seq == 1);
+
+    /* 3. Split right after the checksum, newline in the next packet:
+          delivered once, not twice. */
+    sensor_line_buf_t lb3 = {0};
+    const char *p3[] = { a, "\r\n", b, "\n" };
+    CHECK(feed_packets(&lb3, p3, 4) == 2);
+
+    /* 4. Split inside the checksum: must wait for the second hex digit. */
+    sensor_line_buf_t lb4 = {0};
+    char head[160];
+    snprintf(head, sizeof(head), "%.*s", (int)(strlen(a) - 1), a);
+    const char *p4[] = { head, a + strlen(a) - 1 };
+    CHECK(feed_packets(&lb4, p4, 2) == 1);
+    CHECK(sensor_protocol_parse(got_lines[0], &fr) == SENSOR_PARSE_OK);
+
+    /* 5. Two frames in one packet, junk before them. */
+    sensor_line_buf_t lb5 = {0};
+    char both[400];
+    snprintf(both, sizeof(both), "noise%s%s", f1, f2);
+    const char *p5[] = { both };
+    CHECK(feed_packets(&lb5, p5, 1) == 2);
+}
+
 static void test_calibration_two_point(void)
 {
     /* Ideal K+ electrode: 1 mM -> 100 mV, 10 mM -> 159.16 mV */
@@ -235,6 +308,7 @@ int main(void)
     test_parse_rejects();
     test_format_roundtrip();
     test_line_assembler();
+    test_chunk_assembly();
     test_calibration_two_point();
     test_calibration_ph();
     test_calibration_degenerate();

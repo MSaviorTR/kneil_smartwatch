@@ -22,6 +22,7 @@
 #define YEAR_COUNT          16
 
 static lv_obj_t *ble_sw;
+static lv_obj_t *ble_mode_lbl;
 static lv_obj_t *vib_sw;
 static lv_obj_t *demo_sw;
 static lv_obj_t *alert_lbl;
@@ -64,6 +65,34 @@ static void apply_switch(lv_event_t *e)
     }
 
     app_state_set_settings(&s);
+}
+
+static const char *BLE_MODE_TXT[BLE_MODE_COUNT] = {
+    [BLE_MODE_PHONE]  = "Phone only",
+    [BLE_MODE_SENSOR] = "Sensor only",
+    [BLE_MODE_BOTH]   = "Phone + sensor",
+};
+
+static void ble_mode_text(uint8_t mode)
+{
+    lv_label_set_text_fmt(ble_mode_lbl, LV_SYMBOL_BLUETOOTH "  Mode: %s",
+                          BLE_MODE_TXT[mode % BLE_MODE_COUNT]);
+}
+
+/* Cycles Phone -> Sensor -> Both. Phone = the watch is a peripheral a
+   phone connects to (data out); Sensor = the watch is a central that
+   connects to the wireless sensor (data in). */
+static void ble_mode_cb(lv_event_t *e)
+{
+    (void)e;
+
+    app_settings_t s;
+    app_state_get_settings(&s);
+    s.ble_mode = (uint8_t)((s.ble_mode + 1) % BLE_MODE_COUNT);
+    app_state_set_settings(&s);
+
+    ble_service_set_mode(s.ble_mode);
+    ble_mode_text(s.ble_mode);
 }
 
 static void alert_text(int tenths)
@@ -178,6 +207,11 @@ void ui_settings_create(lv_obj_t *tile)
     (void)tile;
 
     ble_sw  = switch_row(page, LV_SYMBOL_BLUETOOTH "  Bluetooth", s.ble_enabled);
+
+    lv_obj_t *mode_btn = ui_button(page, "", ble_mode_cb, NULL);
+    ble_mode_lbl = lv_obj_get_child(mode_btn, 0);
+    ble_mode_text(s.ble_mode);
+
     vib_sw  = switch_row(page, "Vibration alerts", s.vibration_enabled);
     demo_sw = switch_row(page, "Demo data", s.demo_mode);
 

@@ -206,6 +206,38 @@ size_t sensor_protocol_format(char *buf, size_t len, const sensor_frame_t *frame
     return (size_t)total;
 }
 
+static bool ends_with_checksum(const sensor_line_buf_t *lb)
+{
+    return lb->len >= 4 && !lb->overflow && lb->buf[0] == '$' &&
+           lb->buf[lb->len - 3] == '*' &&
+           hex_value(lb->buf[lb->len - 2]) >= 0 && hex_value(lb->buf[lb->len - 1]) >= 0;
+}
+
+int sensor_feed_chunk(sensor_line_buf_t *lb, const uint8_t *data, size_t len,
+                      sensor_line_cb_t on_line, void *ctx)
+{
+    int lines = 0;
+
+    for(size_t i = 0; i < len; i++)
+    {
+        if(sensor_line_feed(lb, (char)data[i]))
+        {
+            on_line(lb->buf, ctx);
+            lines++;
+        }
+    }
+
+    /* Packet ended mid-line: if what we have is already a whole frame,
+       deliver it now instead of waiting for a newline that may never come. */
+    if(ends_with_checksum(lb) && sensor_line_feed(lb, '\n'))
+    {
+        on_line(lb->buf, ctx);
+        lines++;
+    }
+
+    return lines;
+}
+
 bool sensor_line_feed(sensor_line_buf_t *lb, char c)
 {
     if(c == '\n')

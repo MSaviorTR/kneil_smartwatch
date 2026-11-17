@@ -84,4 +84,12 @@ menu "Guder Watch"
         string "Bluetooth device name"
         default "GuderWatch"
 
+    config GW_BLE_SENSOR_NAME_PREFIX
+        string "Wireless sensor name prefix"
+        default "GuderSensor"
+        help
+            In central mode the watch connects to a sensor that advertises
+            the Guder Sensor service UUID, or whose name starts with this
+            prefix. Empty = match by service UUID only.
+
 endmenu

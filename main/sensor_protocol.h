@@ -70,6 +70,16 @@ typedef struct
 /* Feeds one byte. Returns true when a complete line is in lb->buf. */
 bool sensor_line_feed(sensor_line_buf_t *lb, char c);
 
+/* Feeds one packet (e.g. a BLE notification) and calls on_line for every
+   complete line. Packets may split or join frames freely. A frame that
+   ends a packet without a newline is completed as soon as its "*HH"
+   checksum has arrived, so senders may omit the newline when each
+   notification carries exactly one frame. Returns the lines delivered. */
+typedef void (*sensor_line_cb_t)(const char *line, void *ctx);
+
+int sensor_feed_chunk(sensor_line_buf_t *lb, const uint8_t *data, size_t len,
+                      sensor_line_cb_t on_line, void *ctx);
+
 #ifdef __cplusplus
 }
 #endif

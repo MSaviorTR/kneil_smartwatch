@@ -37,7 +37,7 @@ typedef enum { SC_LIVE, SC_ALERT, SC_DEMO, SC_UNCAL, SC_NODATA } scenario_t;
 static scenario_t sc;
 static uint32_t   sim_ms;
 static app_settings_t settings = {
-    .ble_enabled = true, .vibration_enabled = true, .demo_mode = false,
+    .ble_enabled = true, .ble_mode = BLE_MODE_BOTH, .vibration_enabled = true, .demo_mode = false,
     .k_alert_mM = 6.0f, .brightness = 80,
 };
 static cal_fit_t cal[CAL_CHANNEL_COUNT] = {
@@ -186,6 +186,20 @@ const char *app_state_source_name(data_source_t s)
 bool ble_service_connected(void) { return sc == SC_LIVE || sc == SC_ALERT; }
 bool ble_service_advertising(void) { return true; }
 void ble_service_set_enabled(bool on) { (void)on; }
+void ble_service_set_mode(uint8_t mode) { settings.ble_mode = mode; }
+
+void ble_service_status(ble_status_t *out)
+{
+    memset(out, 0, sizeof(*out));
+    out->enabled = settings.ble_enabled;
+    out->mode = settings.ble_mode;
+    out->phone_connected = (sc == SC_ALERT);
+    out->advertising = true;
+    out->sensor_connected = out->sensor_receiving = (sc == SC_LIVE);
+    out->sensor_scanning = (sc != SC_LIVE);
+    out->sensor_frames = 5321;
+    strcpy(out->sensor_name, "GuderSensor-01");
+}
 
 void data_logger_status(logger_status_t *out)
 {

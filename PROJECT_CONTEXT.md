@@ -62,6 +62,7 @@ BLE, haptics) read snapshots or receive callbacks. The UI never touches hardware
 | K⁺ alert needs 5 s above threshold (`GW_K_ALERT_HOLD_S`) | Real electrodes spike (cable movement, ADC glitches), so a single sample must not buzz the wrist |
 | Saturated or faulted samples are never converted or averaged | A clipped ADC value would otherwise become a false concentration or alert |
 | BLE notifications capped at 1 per second | A 10–100 Hz front end would otherwise flood the link |
+| BLE central added alongside peripheral (17 Nov 2026), switchable Phone / Sensor / Both | The lab plans a **wireless sensor**: the watch must connect to it (central, data in) while still serving a phone (peripheral, data out). Wireless frames reuse the `$GKS` format and enter `app_state_push_frame()` like the wired link |
 | Private GitHub repo, commits under the GitHub noreply email | Backup and syncing to the claude.ai project; avoids exposing the Mac's hostname |
 
 ## 4. Hardware facts (from the schematic and testing)
@@ -144,6 +145,7 @@ tests under ASan/UBSan.
 | **A. Lab instrument → laptop → USB → watch** | The potentiostat (OCP / potentiometry) or a high-impedance meter measures the electrodes. `tools/live_bridge.py` follows its output file or stdin and streams frames to the watch | **Watch side built and tested.** Needs the instrument make/model and how its software saves data. If it only exports after the run, write a direct driver instead (e.g. PalmSens EmStat over USB) |
 | **B. Front end plugged into the watch** | Electrometer-grade buffers (e.g. LMP7721 or OPA320, fA–pA bias, 3.3 V) feeding an ADS1115 (16-bit) or ADS1220 (24-bit) on the header I2C pads; reference electrode biased at mid-supply (~1.65 V) | **Not started.** Needs parts and the supervisor's input; then an I2C ADC driver feeding `app_state` |
 | **C. Separate sensor MCU over UART** | The original plan | Watch side ready; only worth it if the electronics must sit away from the wrist |
+| **D. Wireless sensor over BLE** | The sensor board advertises the Guder Sensor service and notifies `$GKS` frames; the watch is the BLE central | **Watch side built** (Nov 2026); tested only by build and host tests so far. `tools/ble_sensor_emulator.py` turns the Mac into a test sensor |
 
 **Why a buffer is mandatory:** ISEs have MΩ–GΩ source impedance. Connecting one straight to an ADC
 (including the ESP32's) loads it and gives wrong, drifting readings.
