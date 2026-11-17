@@ -71,6 +71,7 @@ static const char *BLE_MODE_TXT[BLE_MODE_COUNT] = {
     [BLE_MODE_PHONE]  = "Phone only",
     [BLE_MODE_SENSOR] = "Sensor only",
     [BLE_MODE_BOTH]   = "Phone + sensor",
+    [BLE_MODE_KNEIL]  = "KNEIL device",
 };
 
 static void ble_mode_text(uint8_t mode)

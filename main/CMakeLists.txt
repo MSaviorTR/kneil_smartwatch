@@ -9,6 +9,8 @@ idf_component_register(
         data_logger.c
         ble_service.c
         ble_central.c
+        kneil_state.c
+        kneil_central.c
         haptics.c
         housekeeping.c
         usb_console.c
@@ -21,6 +23,7 @@ idf_component_register(
         ui/ui_diag.c
         ui/ui_calib.c
         ui/ui_settings.c
+        ui/ui_kneil.c
     INCLUDE_DIRS . ui)
 
 # Vendor workarounds kept from the Waveshare example.

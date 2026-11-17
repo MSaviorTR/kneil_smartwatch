@@ -27,12 +27,13 @@
 
 #include "ui.h"
 #include "ui_internal.h"
+#include "kneil_central.h"
 
 /* ------------------------------------------------------------------
    Scenario
    ------------------------------------------------------------------ */
 
-typedef enum { SC_LIVE, SC_ALERT, SC_DEMO, SC_UNCAL, SC_NODATA } scenario_t;
+typedef enum { SC_LIVE, SC_ALERT, SC_DEMO, SC_UNCAL, SC_NODATA, SC_KNEIL } scenario_t;
 
 static scenario_t sc;
 static uint32_t   sim_ms;
@@ -188,6 +189,54 @@ bool ble_service_advertising(void) { return true; }
 void ble_service_set_enabled(bool on) { (void)on; }
 void ble_service_set_mode(uint8_t mode) { settings.ble_mode = mode; }
 
+/* Stubs: KNEIL central (ui_kneil.c reads this page model) */
+static kneil_model_t kneil_demo;
+
+void kneil_central_snapshot(kneil_model_t *out) { *out = kneil_demo; }
+bool kneil_central_send_ctrl(uint8_t ctrl) { (void)ctrl; return true; }
+void kneil_central_set_lines(bool on) { (void)on; }
+bool kneil_central_lines(void) { return false; }
+
+/* A walking session with two transitions, a gap and a daily summary, to render the KNEIL page. */
+static void kneil_demo_fill(void)
+{
+    kneil_live_t p;
+
+    kneil_model_reset(&kneil_demo);
+    kneil_model_set_active(&kneil_demo, true);
+    kneil_model_set_link(&kneil_demo, KNEIL_LINK_CONNECTED, "KNEIL-7AD1", -48, 247);
+
+    for(int i = 0; i < 40; i++)
+    {
+        memset(&p, 0, sizeof(p));
+        p.version = 2;
+        p.seq = (uint16_t)(100 + i + (i > 20 ? 2 : 0));      /* one gap after the 20th packet */
+        p.t_ms = (uint32_t)(i * 1000);
+        p.cls = 0;
+        p.cls_smooth = (uint8_t)(i < 3 ? 3 : 0);
+        p.raw_cls = (uint8_t)(i % 17 == 0 ? 1 : 0);
+        p.vote_pct = (uint8_t)(70 + i % 20);
+        p.events = (uint8_t)((i == 10 ? KNEIL_EV_STAND_TO_SIT : 0) |
+                            (i == 14 ? KNEIL_EV_SIT_TO_STAND : 0) |
+                            (KNEIL_POSTURE_STANDING << KNEIL_EV_POSTURE_SHIFT));
+        kneil_model_on_live(&kneil_demo, &p, (int64_t)i * 1000000);
+    }
+
+    kneil_summary_t s;
+
+    memset(&s, 0, sizeof(s));
+    s.format = 2;
+    s.n_classes = 8;
+    s.minutes_by_class[0] = 12; s.minutes_by_class[1] = 2; s.minutes_by_class[2] = 1;
+    s.minutes_by_class[3] = 34; s.minutes_by_class[4] = 90;
+    s.minutes_sitting = 20; s.minutes_standing = 12; s.minutes_still_unknown = 2;
+    s.n_sit_to_stand = 3; s.n_stand_to_sit = 4; s.n_bed_transfer = 0;
+    s.sts_seconds_x10 = 25; s.steps = 412; s.cadence_x10 = 1010; s.sit_tilt_x10 = 145;
+    kneil_model_on_summary(&kneil_demo, &s);
+    kneil_model_on_info(&kneil_demo, "library 2.0; model V4half 4s; 8 classes; window 4 s");
+    kneil_demo.last_live_us = esp_timer_get_time() - 1000000;
+}
+
 void ble_service_status(ble_status_t *out)
 {
     memset(out, 0, sizeof(*out));
@@ -292,19 +341,25 @@ int main(int argc, char **argv)
 {
     if(argc != 3)
     {
-        fprintf(stderr, "usage: %s live|alert|demo|uncal|nodata OUTDIR\n", argv[0]);
+        fprintf(stderr, "usage: %s live|alert|demo|uncal|nodata|kneil OUTDIR\n", argv[0]);
         return 2;
     }
 
-    const char *names[] = { "live", "alert", "demo", "uncal", "nodata" };
+    const char *names[] = { "live", "alert", "demo", "uncal", "nodata", "kneil" };
 
-    for(int i = 0; i < 5; i++)
+    for(int i = 0; i < 6; i++)
     {
         if(strcmp(argv[1], names[i]) == 0) sc = (scenario_t)i;
     }
 
     setenv("TZ", "GMT0BST,M3.5.0/1,M10.5.0", 1);
     tzset();
+
+    if(sc == SC_KNEIL)
+    {
+        settings.ble_mode = BLE_MODE_KNEIL;   /* page 1 becomes the KNEIL monitor */
+        kneil_demo_fill();
+    }
 
     lv_init();
     lv_tick_set_cb(tick_cb);

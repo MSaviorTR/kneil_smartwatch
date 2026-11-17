@@ -269,11 +269,19 @@ static void refresh_cb(lv_timer_t *t)
 
     if(tile == ui_tiles[UI_PAGE_FACE])
     {
-        ui_face_refresh();
-
-        if(tick % 8 == 1)
+        /* In KNEIL mode the first page is the KNEIL monitor instead of the watch face. */
+        if(ui_kneil_active())
         {
-            ui_face_refresh_slow();
+            ui_kneil_refresh();
+        }
+        else
+        {
+            ui_face_refresh();
+
+            if(tick % 8 == 1)
+            {
+                ui_face_refresh_slow();
+            }
         }
     }
     else if(tile == ui_tiles[UI_PAGE_TREND] && tick % 8 == 1) ui_trend_refresh();
@@ -291,7 +299,7 @@ static void tile_changed(lv_event_t *e)
 
     update_dots();
 
-    if(tile == ui_tiles[UI_PAGE_FACE])          ui_face_refresh_slow();
+    if(tile == ui_tiles[UI_PAGE_FACE])          { if(ui_kneil_active()) ui_kneil_refresh(); else ui_face_refresh_slow(); }
     else if(tile == ui_tiles[UI_PAGE_TREND])    ui_trend_refresh();
     else if(tile == ui_tiles[UI_PAGE_CALIB])    ui_calib_refresh();
     else if(tile == ui_tiles[UI_PAGE_DIAG])     ui_diag_refresh();
@@ -326,7 +334,14 @@ void ui_init(void)
     create_dots();
     update_dots();
 
-    ui_face_create(ui_tiles[UI_PAGE_FACE]);
+    if(ui_kneil_active())
+    {
+        ui_kneil_create(ui_tiles[UI_PAGE_FACE]);   /* KNEIL mode: page 1 is the KNEIL monitor */
+    }
+    else
+    {
+        ui_face_create(ui_tiles[UI_PAGE_FACE]);
+    }
     ui_trend_create(ui_tiles[UI_PAGE_TREND]);
     ui_calib_create(ui_tiles[UI_PAGE_CALIB]);
     ui_diag_create(ui_tiles[UI_PAGE_DIAG]);
@@ -334,8 +349,15 @@ void ui_init(void)
     ui_time_create();
     ui_alert_create();
 
-    ui_face_refresh();
-    ui_face_refresh_slow();
+    if(ui_kneil_active())
+    {
+        ui_kneil_refresh();
+    }
+    else
+    {
+        ui_face_refresh();
+        ui_face_refresh_slow();
+    }
 
     /* Splash fades into the watch face and is freed afterwards. */
     lv_screen_load_anim(ui_scr_main, LV_SCR_LOAD_ANIM_FADE_IN, 500, SPLASH_MS, true);

@@ -60,6 +60,7 @@ typedef enum
     BLE_MODE_PHONE = 0,    /* peripheral only: phone connects to the watch */
     BLE_MODE_SENSOR,       /* central only: watch connects to the sensor   */
     BLE_MODE_BOTH,         /* both at once                                 */
+    BLE_MODE_KNEIL,        /* neither: the watch monitors a KNEIL implant  */
     BLE_MODE_COUNT
 } ble_mode_t;
 

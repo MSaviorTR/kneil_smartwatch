@@ -16,6 +16,7 @@
 #include "ble_central.h"
 #include "ble_service.h"
 #include "ble_uuids.h"
+#include "kneil_central.h"
 #include "rtc_service.h"
 
 static const char *TAG = "ble";
@@ -44,8 +45,10 @@ static void start_advertising(void);
 
 /* Role switches. Peripheral = phone connects to us (data out). Central =
    we connect to the wireless sensor (data in). Both may run together. */
-static bool peripheral_on(void) { return enabled && mode != BLE_MODE_SENSOR; }
-static bool central_on(void)    { return enabled && mode != BLE_MODE_PHONE; }
+static bool peripheral_on(void) { return enabled && mode != BLE_MODE_SENSOR && mode != BLE_MODE_KNEIL; }
+static bool central_on(void)    { return enabled && (mode == BLE_MODE_SENSOR || mode == BLE_MODE_BOTH); }
+/* KNEIL mode: neither the phone peripheral nor the Guder-sensor central; the KNEIL central instead. */
+static bool kneil_on(void)      { return enabled && mode == BLE_MODE_KNEIL; }
 
 /* ------------------------------------------------------------------
    GATT
@@ -279,12 +282,14 @@ static void on_sync(void)
     synced = true;
     start_advertising();
     ble_central_on_sync(own_addr_type);
+    kneil_central_on_sync(own_addr_type);
 }
 
 static void on_reset(int reason)
 {
     synced = false;
     ble_central_on_reset();
+    kneil_central_on_reset();
     ESP_LOGW(TAG, "host reset, reason %d", reason);
 }
 
@@ -381,9 +386,10 @@ esp_err_t ble_service_start(void)
 
     app_state_add_listener(on_reading);
     ble_central_set_active(central_on());     /* takes effect once synced */
+    kneil_central_set_active(kneil_on());
     nimble_port_freertos_init(host_task);
 
-    static const char *MODE_TXT[] = { "phone", "sensor", "phone + sensor" };
+    static const char *MODE_TXT[] = { "phone", "sensor", "phone + sensor", "kneil device" };
     ESP_LOGI(TAG, "started as \"%s\", mode %s%s", CONFIG_GW_BLE_DEVICE_NAME,
              MODE_TXT[mode % BLE_MODE_COUNT], enabled ? "" : " (Bluetooth off)");
 
@@ -394,6 +400,12 @@ esp_err_t ble_service_start(void)
 static void apply_roles(void)
 {
     ble_central_set_active(central_on());
+    kneil_central_set_active(kneil_on());
+
+    if(ble_gap_adv_active() && !peripheral_on())
+    {
+        ble_gap_adv_stop();
+    }
 
     if(!synced)
     {
