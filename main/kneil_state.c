@@ -214,11 +214,23 @@ void kneil_uuid_text(char out[37], uint16_t id)
 void kneil_chr_dsc_range(uint16_t value, uint16_t next_def, uint16_t svc_end,
                          uint16_t *first, uint16_t *last)
 {
-    *first = (uint16_t)(value + 1);
+    uint16_t start_arg;
 
-    /* next_def == 0: last characteristic of the service. When the next definition follows the value handle
-       directly, last ends up below first: the characteristic has no descriptors. */
-    *last = (next_def != 0) ? (uint16_t)(next_def - 1) : svc_end;
+    kneil_dsc_disc_args(value, next_def, svc_end, &start_arg, last);
+
+    /* the descriptors themselves start after the value handle; last < first means there are none */
+    *first = (uint16_t)(value + 1);
+}
+
+void kneil_dsc_disc_args(uint16_t value, uint16_t next_def, uint16_t svc_end,
+                         uint16_t *start_arg, uint16_t *end_arg)
+{
+    /* NimBLE's ble_gattc_disc_all_dscs() takes the characteristic value handle as its start handle and
+       searches value + 1 .. end itself (ble_gattc.c: find_info(prev_handle + 1, end_handle)). */
+    *start_arg = value;
+
+    /* next_def == 0: last characteristic of the service. */
+    *end_arg = (next_def != 0) ? (uint16_t)(next_def - 1) : svc_end;
 }
 
 uint16_t kneil_first_cccd(const uint16_t *handles, const uint8_t *is_cccd, int n,

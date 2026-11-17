@@ -128,6 +128,12 @@ void kneil_chr_dsc_range(uint16_t value, uint16_t next_def, uint16_t svc_end,
 uint16_t kneil_first_cccd(const uint16_t *handles, const uint8_t *is_cccd, int n,
                           uint16_t first, uint16_t last);
 
+/* Arguments for NimBLE's ble_gattc_disc_all_dscs(): `start_arg` is the characteristic VALUE handle (NimBLE
+   searches value + 1 .. end itself; host/ble_gatt.h "The handle of the characteristic value attribute"),
+   `end_arg` the last handle of the characteristic definition. */
+void kneil_dsc_disc_args(uint16_t value, uint16_t next_def, uint16_t svc_end,
+                         uint16_t *start_arg, uint16_t *end_arg);
+
 /* The CCCD of the characteristic with value handle `value`: its own range only, first CCCD, 0 if none. */
 uint16_t kneil_cccd_for(uint16_t value, uint16_t next_def, uint16_t svc_end,
                         const uint16_t *handles, const uint8_t *is_cccd, int n);

@@ -289,6 +289,40 @@ static void test_cccd_ranges(void)
     CHECK(kneil_cccd_for(29, 0, 30, DSC, IS_CCCD, 4) == 30);
 }
 
+/* ble_gattc_disc_all_dscs() takes the characteristic VALUE handle as its start handle and searches
+   value + 1 .. end itself (host/ble_gatt.h, ble_gattc.c). Passing the descriptor start (value + 1, the W4
+   code) made NimBLE send find-info 23..22 and return BLE_HS_EINVAL. */
+static void test_dsc_disc_args(void)
+{
+    enum { SVC_END = 33 };
+    uint16_t start, end;
+
+    /* Layout: LIVE 20/21 CCCD 22, RAW 23/24 CCCD 25, CONTROL 26/27, INFO 28/29 CCCD 30, SUMMARY 31/32
+       CCCD 33. The end argument is the last handle of the characteristic's own definition (its CCCD), so
+       INFO is 30, not 31: 31 is the SUMMARY definition handle and belongs to the next characteristic
+       (host/ble_gatt.h: "The last handle in the characteristic definition"). */
+    kneil_dsc_disc_args(21, 23, SVC_END, &start, &end);
+    CHECK(start == 21 && end == 22);
+
+    kneil_dsc_disc_args(24, 26, SVC_END, &start, &end);
+    CHECK(start == 24 && end == 25);          /* RAW */
+
+    kneil_dsc_disc_args(29, 31, SVC_END, &start, &end);
+    CHECK(start == 29 && end == 30);          /* INFO */
+
+    kneil_dsc_disc_args(32, 0, SVC_END, &start, &end);
+    CHECK(start == 32 && end == 33);          /* SUMMARY: last in the service */
+
+    /* CONTROL: the next definition follows directly, so the range is empty and the call is skipped */
+    kneil_dsc_disc_args(27, 28, SVC_END, &start, &end);
+    CHECK(start == 27 && end == 27);
+    CHECK(end < (uint16_t)(start + 1));
+
+    /* the start handle must never be the descriptor start: that is what broke on hardware */
+    kneil_dsc_disc_args(21, 23, SVC_END, &start, &end);
+    CHECK(start != 22);
+}
+
 int main(void)
 {
     test_decode_live_v2();
@@ -299,6 +333,7 @@ int main(void)
     test_page_rebuild_logic();
     test_uuids();
     test_cccd_ranges();
+    test_dsc_disc_args();
 
     printf("kneil tests: %d checks, %d failed\n", checks, fails);
     printf("KNEIL TEST: %s\n", fails ? "FAILED" : "PASS");

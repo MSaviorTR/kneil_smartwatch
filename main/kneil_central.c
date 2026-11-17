@@ -180,6 +180,7 @@ static int      n_dscs;
 static const char *sub_name;
 static uint16_t    sub_value;
 static uint16_t    sub_next_def;
+static uint16_t    sub_start;        /* argument for ble_gattc_disc_all_dscs(): the value handle */
 static uint16_t    sub_first, sub_last;
 static uint16_t    sub_cccd;
 static int         sub_phase;        /* 0 live, 1 info, 2 summary */
@@ -276,7 +277,9 @@ static void subscribe_next(void)
         sub_value = chr_val[idx];
         sub_next_def = (idx + 1 < n_chrs) ? chr_def[idx + 1] : 0;
 
-        kneil_chr_dsc_range(sub_value, sub_next_def, svc_end, &sub_first, &sub_last);
+        /* start = the value handle (NimBLE searches value + 1 .. end itself), end = next definition - 1 */
+        kneil_dsc_disc_args(sub_value, sub_next_def, svc_end, &sub_start, &sub_last);
+        sub_first = (uint16_t)(sub_value + 1);
         n_dscs = 0;
 
         if(sub_last < sub_first)
@@ -287,7 +290,7 @@ static void subscribe_next(void)
             continue;
         }
 
-        if(ble_gattc_disc_all_dscs(conn, sub_first, sub_last, on_sub_dsc, NULL) != 0)
+        if(ble_gattc_disc_all_dscs(conn, sub_start, sub_last, on_sub_dsc, NULL) != 0)
         {
             drop_connection("descriptor discovery failed");
         }
