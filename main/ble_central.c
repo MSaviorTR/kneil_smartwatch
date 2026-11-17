@@ -12,14 +12,11 @@
 
 #include "app_state.h"
 #include "ble_central.h"
+#include "ble_uuids.h"
 #include "sensor_protocol.h"
 
 static const char *TAG = "ble-central";
 
-/* 6e7a00XX-3c1f-4b8e-9d2a-5f4c1b2a7e90, little-endian (same base as the
-   watch's own service in ble_service.c). */
-#define GW_UUID(x) BLE_UUID128_INIT(0x90, 0x7e, 0x2a, 0x1b, 0x4c, 0x5f, 0x2a, 0x9d, \
-                                    0x8e, 0x4b, 0x1f, 0x3c, (x) & 0xff, 0x00, 0x7a, 0x6e)
 
 static const ble_uuid128_t SENSOR_SVC_UUID    = GW_UUID(0x10);
 static const ble_uuid128_t SENSOR_FRAMES_UUID = GW_UUID(0x11);

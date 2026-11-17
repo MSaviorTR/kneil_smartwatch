@@ -1,3 +1,5 @@
+#include "freertos/FreeRTOS.h"
+
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -18,21 +20,39 @@ static const uint16_t    *pattern;
 static int                pattern_len;
 static int                step;
 
+/* play() runs on the UI / sensor tasks, advance() on the esp_timer task:
+   the pattern state is only touched inside this spinlock. */
+static portMUX_TYPE       mux = portMUX_INITIALIZER_UNLOCKED;
+
 static void advance(void *arg)
 {
     (void)arg;
 
-    if(step >= pattern_len)
-    {
-        gpio_set_level(MOTOR_GPIO, 0);
-        pattern = NULL;
-        return;
-    }
+    bool done;
+    bool on = false;
+    uint16_t ms = 0;
 
-    /* Even steps are "on", odd steps are "off". */
-    gpio_set_level(MOTOR_GPIO, (step % 2) == 0);
-    esp_timer_start_once(timer, (uint64_t)pattern[step] * 1000);
-    step++;
+    taskENTER_CRITICAL(&mux);
+    done = (pattern == NULL || step >= pattern_len);
+
+    if(done)
+    {
+        pattern = NULL;
+    }
+    else
+    {
+        on = (step % 2) == 0;          /* even steps "on", odd steps "off" */
+        ms = pattern[step];
+        step++;
+    }
+    taskEXIT_CRITICAL(&mux);
+
+    gpio_set_level(MOTOR_GPIO, on);
+
+    if(!done)
+    {
+        esp_timer_start_once(timer, (uint64_t)ms * 1000);
+    }
 }
 
 static void play(const uint16_t *p, int len)
@@ -48,9 +68,13 @@ static void play(const uint16_t *p, int len)
     /* Kick the timer instead of calling advance() here, so every GPIO
        change happens on the esp_timer task, never from two tasks at once. */
     esp_timer_stop(timer);
+
+    taskENTER_CRITICAL(&mux);
     pattern = p;
     pattern_len = len;
     step = 0;
+    taskEXIT_CRITICAL(&mux);
+
     esp_timer_start_once(timer, 1);
 }
 

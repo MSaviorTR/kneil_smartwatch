@@ -55,6 +55,22 @@ typedef struct
     app_settings_t s;
 } settings_blob_t;
 
+/* Settings as stored by firmware with SETTINGS_VERSION 1 (before
+   ble_mode). Kept so an update upgrades saved settings instead of
+   silently resetting them to defaults. */
+typedef struct
+{
+    uint8_t version;
+    struct
+    {
+        bool    ble_enabled;
+        bool    vibration_enabled;
+        bool    demo_mode;
+        float   k_alert_mM;
+        uint8_t brightness;
+    } s;
+} settings_blob_v1_t;
+
 typedef struct
 {
     uint8_t   version;
@@ -70,6 +86,11 @@ static reading_t      latest;
 static bool           have_latest;
 static data_source_t  history_source = DATA_SRC_NONE;
 static hist_slot_t   *history;
+
+/* Readers copy raw slots here under the hub lock, then convert to mM / pH
+   after releasing it, so the sensor path never waits on powf(). */
+static hist_slot_t      *history_snapshot;
+static SemaphoreHandle_t snapshot_lock;
 
 static link_stats_t   link;
 static bool           have_seq;
@@ -175,13 +196,30 @@ static void load_nvs(void)
         return;
     }
 
-    settings_blob_t sb;
-    size_t len = sizeof(sb);
-
-    if(nvs_get_blob(h, NVS_KEY_SETTINGS, &sb, &len) == ESP_OK &&
-       len == sizeof(sb) && sb.version == SETTINGS_VERSION)
+    /* Read into a buffer big enough for any version, then decode. */
+    union
     {
-        settings = sb.s;
+        settings_blob_t    cur;
+        settings_blob_v1_t v1;
+    } blob;
+    size_t len = sizeof(blob);
+
+    if(nvs_get_blob(h, NVS_KEY_SETTINGS, &blob, &len) == ESP_OK)
+    {
+        if(len == sizeof(blob.cur) && blob.cur.version == SETTINGS_VERSION)
+        {
+            settings = blob.cur.s;
+        }
+        else if(len == sizeof(blob.v1) && blob.v1.version == 1)
+        {
+            settings.ble_enabled       = blob.v1.s.ble_enabled;
+            settings.vibration_enabled = blob.v1.s.vibration_enabled;
+            settings.demo_mode         = blob.v1.s.demo_mode;
+            settings.k_alert_mM        = blob.v1.s.k_alert_mM;
+            settings.brightness        = blob.v1.s.brightness;
+            /* ble_mode keeps its default */
+            ESP_LOGI(TAG, "settings upgraded from version 1");
+        }
 
         if(settings.ble_mode >= BLE_MODE_COUNT)
         {
@@ -247,8 +285,11 @@ esp_err_t app_state_init(void)
 
     history = heap_caps_calloc(HISTORY_S, sizeof(hist_slot_t),
                                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    history_snapshot = heap_caps_calloc(HISTORY_S, sizeof(hist_slot_t),
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    snapshot_lock = xSemaphoreCreateMutex();
 
-    if(lock == NULL || history == NULL)
+    if(lock == NULL || history == NULL || history_snapshot == NULL || snapshot_lock == NULL)
     {
         return ESP_ERR_NO_MEM;
     }
@@ -522,16 +563,25 @@ int app_state_history(float *k_mM, float *ph, int seconds)
         seconds = HISTORY_S;
     }
 
+    xSemaphoreTake(snapshot_lock, portMAX_DELAY);
+
+    /* Under the hub lock: only copy raw slots and the calibration. */
     xSemaphoreTake(lock, portMAX_DELAY);
 
-    const cal_fit_t *fits = (history_source == DATA_SRC_DEMO) ? DEMO_CAL : cal;
+    cal_fit_t fits[CAL_CHANNEL_COUNT];
+    memcpy(fits, (history_source == DATA_SRC_DEMO) ? DEMO_CAL : cal, sizeof(fits));
     int32_t now = uptime_s();
+    memcpy(history_snapshot, history, sizeof(hist_slot_t) * HISTORY_S);
+
+    xSemaphoreGive(lock);
+
+    /* Outside the lock: convert. */
     int with_data = 0;
 
     for(int i = 0; i < seconds; i++)
     {
         int32_t sec = now - (seconds - 1) + i;
-        const hist_slot_t *slot = (sec >= 0) ? &history[sec % HISTORY_S] : NULL;
+        const hist_slot_t *slot = (sec >= 0) ? &history_snapshot[sec % HISTORY_S] : NULL;
         bool here = slot != NULL && slot->sec == sec;
 
         float k = (here && slot->k_n) ? cal_k_mv_to_mM(&fits[CAL_CHANNEL_K], slot->k_mv_sum / slot->k_n) : NAN;
@@ -546,7 +596,7 @@ int app_state_history(float *k_mM, float *ph, int seconds)
         }
     }
 
-    xSemaphoreGive(lock);
+    xSemaphoreGive(snapshot_lock);
     return with_data;
 }
 

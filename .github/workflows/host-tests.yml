@@ -1,0 +1,17 @@
+# Runs the host tests on every push and pull request:
+# frame parser, calibration maths, data hub, and the Python <-> C
+# protocol contract, all under AddressSanitizer / UBSan.
+# (Firmware build and hardware checks still happen locally.)
+name: host-tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  host-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unit and contract tests
+        run: ./test/host/run.sh

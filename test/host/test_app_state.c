@@ -250,9 +250,35 @@ static void test_dropped_frames_counted(void)
     CHECK(after.frames_dropped - before.frames_dropped == 3);
 }
 
+/* Settings saved by firmware version 1 (no ble_mode) must survive an
+   update instead of resetting to defaults. Same layout as in app_state.c. */
+static void store_v1_settings(void)
+{
+    struct
+    {
+        uint8_t version;
+        struct { bool ble_enabled, vibration_enabled, demo_mode; float k_alert_mM; uint8_t brightness; } s;
+    } v1 = { .version = 1, .s = { false, false, false, 6.0f, 55 } };
+
+    nvs_set_blob(1, "settings", &v1, sizeof(v1));
+}
+
+static void test_settings_migrated(void)
+{
+    app_settings_t s;
+    app_state_get_settings(&s);
+    CHECK(!s.ble_enabled);                 /* user's old values kept... */
+    CHECK(!s.vibration_enabled);
+    CHECK(s.brightness == 55);
+    CHECK_NEAR(s.k_alert_mM, 6.0, 1e-6);
+    CHECK(s.ble_mode == BLE_MODE_BOTH);    /* ...new field gets its default */
+}
+
 int main(void)
 {
+    store_v1_settings();
     CHECK(app_state_init() == ESP_OK);
+    test_settings_migrated();
     CHECK(app_state_set_calibration(CAL_CHANNEL_K, &K_CAL) == ESP_OK);
     app_state_add_alert_listener(on_alert);
 
