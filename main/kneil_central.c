@@ -16,22 +16,46 @@
 
 static const char *TAG = "kneil-central";
 
-/* KNEIL live service a8f5000X-3e2c-4c6e-9b1a-6b4e45494c00 (same UUIDs as the KNEIL firmware). */
-#define KNEIL_UUID128(id) BLE_UUID128_INIT(0x00, 0x4c, 0x94, 0x45, 0x4e, 0x6b, 0x1a, 0x9b, 0x6e, 0x4c, 0x2c, 0x3e, \
-                                           (uint8_t)((id) & 0xff), (uint8_t)(((id) >> 8) & 0xff), 0xf5, 0xa8)
-
-static const ble_uuid128_t SVC_UUID     = KNEIL_UUID128(0x0001);
-static const ble_uuid128_t LIVE_UUID    = KNEIL_UUID128(0x0002);
-static const ble_uuid128_t CONTROL_UUID = KNEIL_UUID128(0x0004);
-static const ble_uuid128_t INFO_UUID    = KNEIL_UUID128(0x0005);
-static const ble_uuid128_t SUMMARY_UUID = KNEIL_UUID128(0x0006);
-static const ble_uuid16_t  CCCD_UUID    = BLE_UUID16_INIT(0x2902);
+/* The KNEIL UUIDs (a8f5000X-3e2c-4c6e-9b1a-6b4e45494c00) come from main/kneil_state.c, where the host test
+   checks them against kneil_firmware/protocol/README.md. NimBLE wants a struct, so they are built once from
+   that byte array; no UUID byte is written by hand here any more. */
+static ble_uuid128_t SVC_UUID;
+static ble_uuid128_t LIVE_UUID;
+static ble_uuid128_t CONTROL_UUID;
+static ble_uuid128_t INFO_UUID;
+static ble_uuid128_t SUMMARY_UUID;
+static const ble_uuid16_t CCCD_UUID = BLE_UUID16_INIT(0x2902);
 
 #define CONNECT_TIMEOUT_MS     10000
 #define RESCAN_DELAY_MS        2000
 #define SCAN_WINDOW_MS         3000    /* collect candidates, then connect to the strongest KNEIL device */
 #define MAX_CANDIDATES         8
 #define KNEIL_NAME_PREFIX      "KNEIL-"
+
+static void uuid_init(ble_uuid128_t *uuid, uint16_t id)
+{
+    uint8_t bytes[16];
+
+    kneil_uuid_le(bytes, id);
+    ble_uuid_init_from_buf((ble_uuid_any_t *)uuid, bytes, sizeof(bytes));
+}
+
+static void init_uuids(void)
+{
+    static bool ready;
+
+    if(ready)
+    {
+        return;
+    }
+
+    uuid_init(&SVC_UUID, KNEIL_UUID_SERVICE);
+    uuid_init(&LIVE_UUID, KNEIL_UUID_LIVE);
+    uuid_init(&CONTROL_UUID, KNEIL_UUID_CONTROL);
+    uuid_init(&INFO_UUID, KNEIL_UUID_INFO);
+    uuid_init(&SUMMARY_UUID, KNEIL_UUID_SUMMARY);
+    ready = true;
+}
 
 struct candidate
 {
@@ -626,6 +650,8 @@ bool kneil_central_send_ctrl(uint8_t ctrl)
 
 static void ensure_init(void)
 {
+    init_uuids();
+
     if(lock == NULL)
     {
         lock = xSemaphoreCreateMutex();

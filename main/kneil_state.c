@@ -172,6 +172,45 @@ bool kneil_page_needs_rebuild(bool built_kneil, int ble_mode, int kneil_mode)
     return built_kneil != (ble_mode == kneil_mode);
 }
 
+/*
+ * UUID a8f5000X-3e2c-4c6e-9b1a-6b4e45494c00, little-endian (NimBLE order):
+ * the text ends ...6b4e45494c00, so the bytes start 00 4c 49 45 4e 6b.
+ */
+const uint8_t KNEIL_UUID_BASE_LE[16] = {
+    0x00, 0x4c, 0x49, 0x45, 0x4e, 0x6b, 0x1a, 0x9b,
+    0x6e, 0x4c, 0x2c, 0x3e, 0x00, 0x00, 0xf5, 0xa8,
+};
+
+void kneil_uuid_le(uint8_t out[16], uint16_t id)
+{
+    memcpy(out, KNEIL_UUID_BASE_LE, 16);
+    out[12] = (uint8_t)(id & 0xff);
+    out[13] = (uint8_t)((id >> 8) & 0xff);
+}
+
+void kneil_uuid_text(char out[37], uint16_t id)
+{
+    static const char hex[] = "0123456789abcdef";
+    uint8_t b[16];
+    char *p = out;
+
+    kneil_uuid_le(b, id);
+
+    /* the text is the byte array reversed, 8-4-4-4-12 hex digits */
+    for(int i = 15; i >= 0; i--)
+    {
+        *p++ = hex[(b[i] >> 4) & 0xf];
+        *p++ = hex[b[i] & 0xf];
+
+        if(i == 12 || i == 10 || i == 8 || i == 6)
+        {
+            *p++ = '-';
+        }
+    }
+
+    *p = '\0';
+}
+
 int kneil_model_history_at(const kneil_model_t *m, int i)
 {
     if(i < 0 || i >= m->hist_count)

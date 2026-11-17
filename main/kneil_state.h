@@ -97,6 +97,21 @@ const char *kneil_class_text(int cls, uint8_t version);
 uint32_t    kneil_class_colour(int cls, uint8_t version);   /* 0xRRGGBB */
 const char *kneil_posture_text(int posture);
 
+/* ---- 128-bit UUIDs ---------------------------------------------------- */
+/*
+ * One concrete copy of the UUID base, in the byte order NimBLE takes (little-endian: least significant
+ * byte first). The 16-bit part sits at bytes 12-13 and is filled in by kneil_uuid_le().
+ * Text form (kneil_firmware/protocol/README.md): a8f5000X-3e2c-4c6e-9b1a-6b4e45494c00
+ *   0x0001 service, 0x0002 LIVE, 0x0004 CONTROL, 0x0005 INFO, 0x0006 SUMMARY.
+ * The host test formats all five and compares them with those strings, so a wrong byte cannot come back.
+ */
+extern const uint8_t KNEIL_UUID_BASE_LE[16];
+
+/* 16 bytes of UUID a8f5000<id>-3e2c-4c6e-9b1a-6b4e45494c00, in NimBLE order. */
+void kneil_uuid_le(uint8_t out[16], uint16_t id);
+/* The same UUID as text "a8f5000x-3e2c-4c6e-9b1a-6b4e45494c00": out must hold 37 bytes. */
+void kneil_uuid_text(char out[37], uint16_t id);
+
 #ifdef __cplusplus
 }
 #endif

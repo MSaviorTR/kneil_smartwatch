@@ -188,6 +188,52 @@ static void test_page_rebuild_logic(void)
     }
 }
 
+/* The five KNEIL UUIDs the watch uses, formatted from KNEIL_UUID_BASE_LE. The expected text is copied from
+   kneil_firmware/protocol/README.md, "A. Bluetooth LE (binary)" (the service, LIVE, RAW, CONTROL, INFO table)
+   and the v2 notes above it, which add the SUMMARY characteristic a8f50006. */
+static void test_uuids(void)
+{
+    static const struct
+    {
+        uint16_t    id;
+        const char *text;
+    } TABLE[] = {
+        { 0x0001, "a8f50001-3e2c-4c6e-9b1a-6b4e45494c00" },   /* service */
+        { 0x0002, "a8f50002-3e2c-4c6e-9b1a-6b4e45494c00" },   /* LIVE */
+        { 0x0004, "a8f50004-3e2c-4c6e-9b1a-6b4e45494c00" },   /* CONTROL */
+        { 0x0005, "a8f50005-3e2c-4c6e-9b1a-6b4e45494c00" },   /* INFO */
+        { 0x0006, "a8f50006-3e2c-4c6e-9b1a-6b4e45494c00" },   /* SUMMARY */
+    };
+
+    for(int i = 0; i < (int)(sizeof(TABLE) / sizeof(TABLE[0])); i++)
+    {
+        char text[37];
+
+        kneil_uuid_text(text, TABLE[i].id);
+
+        if(strcmp(text, TABLE[i].text) != 0)
+        {
+            printf("FAIL uuid %04x: %s (protocol: %s)\n", TABLE[i].id, text, TABLE[i].text);
+        }
+
+        CHECK(strcmp(text, TABLE[i].text) == 0);
+    }
+
+    /* the concrete bytes NimBLE gets, for the service: the text bytes of ...6b4e45494c00 come first,
+       least significant byte first, then the 16-bit part at 12-13 */
+    static const uint8_t BASE[16] = {
+        0x00, 0x4c, 0x49, 0x45, 0x4e, 0x6b, 0x1a, 0x9b,
+        0x6e, 0x4c, 0x2c, 0x3e, 0x00, 0x00, 0xf5, 0xa8,
+    };
+    uint8_t b[16];
+
+    CHECK(memcmp(KNEIL_UUID_BASE_LE, BASE, sizeof(BASE)) == 0);
+    kneil_uuid_le(b, KNEIL_UUID_SERVICE);
+    CHECK(memcmp(b, BASE, 12) == 0);
+    CHECK(b[12] == 0x01 && b[13] == 0x00);
+    CHECK(b[14] == 0xf5 && b[15] == 0xa8);
+}
+
 int main(void)
 {
     test_decode_live_v2();
@@ -196,6 +242,7 @@ int main(void)
     test_model_sequence();
     test_names_and_colours();
     test_page_rebuild_logic();
+    test_uuids();
 
     printf("kneil tests: %d checks, %d failed\n", checks, fails);
     printf("KNEIL TEST: %s\n", fails ? "FAILED" : "PASS");
