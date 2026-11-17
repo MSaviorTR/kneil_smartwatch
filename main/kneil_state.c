@@ -211,6 +211,52 @@ void kneil_uuid_text(char out[37], uint16_t id)
     *p = '\0';
 }
 
+void kneil_chr_dsc_range(uint16_t value, uint16_t next_def, uint16_t svc_end,
+                         uint16_t *first, uint16_t *last)
+{
+    *first = (uint16_t)(value + 1);
+
+    /* next_def == 0: last characteristic of the service. When the next definition follows the value handle
+       directly, last ends up below first: the characteristic has no descriptors. */
+    *last = (next_def != 0) ? (uint16_t)(next_def - 1) : svc_end;
+}
+
+uint16_t kneil_first_cccd(const uint16_t *handles, const uint8_t *is_cccd, int n,
+                          uint16_t first, uint16_t last)
+{
+    uint16_t best = 0;
+
+    for(int i = 0; i < n; i++)
+    {
+        if(!is_cccd[i] || handles[i] < first || handles[i] > last)
+        {
+            continue;
+        }
+
+        if(best == 0 || handles[i] < best)
+        {
+            best = handles[i];      /* the first CCCD of this characteristic, whatever order it arrives in */
+        }
+    }
+
+    return best;
+}
+
+uint16_t kneil_cccd_for(uint16_t value, uint16_t next_def, uint16_t svc_end,
+                        const uint16_t *handles, const uint8_t *is_cccd, int n)
+{
+    uint16_t first, last;
+
+    kneil_chr_dsc_range(value, next_def, svc_end, &first, &last);
+
+    if(last < first)
+    {
+        return 0;
+    }
+
+    return kneil_first_cccd(handles, is_cccd, n, first, last);
+}
+
 int kneil_model_history_at(const kneil_model_t *m, int i)
 {
     if(i < 0 || i >= m->hist_count)

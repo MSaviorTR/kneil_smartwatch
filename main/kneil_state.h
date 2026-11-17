@@ -112,6 +112,26 @@ void kneil_uuid_le(uint8_t out[16], uint16_t id);
 /* The same UUID as text "a8f5000x-3e2c-4c6e-9b1a-6b4e45494c00": out must hold 37 bytes. */
 void kneil_uuid_text(char out[37], uint16_t id);
 
+/* ---- descriptor (CCCD) ranges ---------------------------------------- */
+/*
+ * A characteristic's descriptors live between its value handle + 1 and the definition handle of the next
+ * characteristic - 1, or the end of the service for the last characteristic. Searching to the service end
+ * and keeping the last CCCD gave LIVE and INFO the SUMMARY descriptor (found on hardware, 17 Nov 2026).
+ * `next_def` is 0 when there is no next characteristic. Pure, so the host test replays the layout from
+ * the owner's log.
+ */
+void kneil_chr_dsc_range(uint16_t value, uint16_t next_def, uint16_t svc_end,
+                         uint16_t *first, uint16_t *last);
+
+/* First (lowest) CCCD inside [first, last]: the index into `handles`/`is_cccd` where is_cccd is non-zero,
+   0 when the range holds none. */
+uint16_t kneil_first_cccd(const uint16_t *handles, const uint8_t *is_cccd, int n,
+                          uint16_t first, uint16_t last);
+
+/* The CCCD of the characteristic with value handle `value`: its own range only, first CCCD, 0 if none. */
+uint16_t kneil_cccd_for(uint16_t value, uint16_t next_def, uint16_t svc_end,
+                        const uint16_t *handles, const uint8_t *is_cccd, int n);
+
 #ifdef __cplusplus
 }
 #endif

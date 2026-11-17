@@ -72,7 +72,6 @@ static uint8_t       own_addr_type;
 static uint16_t conn = BLE_HS_CONN_HANDLE_NONE;
 static uint16_t svc_start, svc_end;
 static uint16_t h_live, h_info, h_summary, h_ctrl;
-static uint16_t cccd_live, cccd_info, cccd_summary;
 
 static struct candidate cand[MAX_CANDIDATES];
 static int n_cand;
@@ -157,14 +156,40 @@ static void rescan_later(void)
 
 /* ------------------------------------------------------------------ subscriptions */
 
-
 static void subscribe_next(void);
 
 static int on_cccd_written(uint16_t c, const struct ble_gatt_error *err, struct ble_gatt_attr *attr, void *arg);
 
-/* Descriptor discovery for one characteristic: find its CCCD, then write notify=1. */
-static uint16_t sub_cccd;            /* CCCD of the characteristic being subscribed */
-static int      sub_phase;           /* 0 live, 1 info, 2 summary */
+/* The characteristic table of this connect: definition and value handles in discovery order, so each
+   characteristic's descriptors can be searched in its own range (see kneil_chr_dsc_range()). */
+#define MAX_CHRS 12
+static uint16_t chr_def[MAX_CHRS];
+static uint16_t chr_val[MAX_CHRS];
+static int      n_chrs;
+static int      idx_live = -1;
+static int      idx_info = -1;
+static int      idx_summary = -1;
+
+/* Descriptors of the characteristic being subscribed (one short discovery). */
+#define MAX_DSCS 12
+static uint16_t dsc_handle[MAX_DSCS];
+static uint8_t  dsc_is_cccd[MAX_DSCS];
+static int      n_dscs;
+
+/* The subscription in progress: name for the log, value handle, its range and the CCCD found. */
+static const char *sub_name;
+static uint16_t    sub_value;
+static uint16_t    sub_next_def;
+static uint16_t    sub_first, sub_last;
+static uint16_t    sub_cccd;
+static int         sub_phase;        /* 0 live, 1 info, 2 summary */
+
+/* One line per subscription, after the CCCD write succeeded (the owner's log then shows three handles). */
+static void log_subscribed(void)
+{
+    ESP_LOGI(TAG, "subscribed %s: value %u cccd %u", sub_name ? sub_name : "?",
+             (unsigned)sub_value, (unsigned)sub_cccd);
+}
 
 static int on_sub_dsc(uint16_t c, const struct ble_gatt_error *err, uint16_t chr_val_handle,
                       const struct ble_gatt_dsc *dsc, void *arg)
@@ -173,9 +198,11 @@ static int on_sub_dsc(uint16_t c, const struct ble_gatt_error *err, uint16_t chr
 
     if(err->status == 0 && dsc != NULL)
     {
-        if(ble_uuid_cmp(&dsc->uuid.u, &CCCD_UUID.u) == 0)
+        if(n_dscs < MAX_DSCS)
         {
-            sub_cccd = dsc->handle;
+            dsc_handle[n_dscs]  = dsc->handle;
+            dsc_is_cccd[n_dscs] = ble_uuid_cmp(&dsc->uuid.u, &CCCD_UUID.u) == 0;
+            n_dscs++;
         }
 
         return 0;
@@ -187,27 +214,29 @@ static int on_sub_dsc(uint16_t c, const struct ble_gatt_error *err, uint16_t chr
         return 0;
     }
 
-    if(sub_cccd == 0)
+    /* its own range only, first CCCD: kneil_cccd_for() also filters by the range, so a device that
+       ignores the discovery range cannot hand over a later characteristic's descriptor */
+    const uint16_t cccd = kneil_cccd_for(sub_value, sub_next_def, svc_end,
+                                         dsc_handle, dsc_is_cccd, n_dscs);
+
+    if(cccd == 0)
     {
         /* no notify descriptor: ignore this optional characteristic and go on */
-        ESP_LOGW(TAG, "characteristic without a CCCD, skipped");
+        ESP_LOGW(TAG, "no CCCD for %s (value %u)", sub_name ? sub_name : "?", (unsigned)sub_value);
         sub_phase++;
         subscribe_next();
         return 0;
     }
 
+    sub_cccd = cccd;
+
     static const uint8_t enable[2] = { 0x01, 0x00 };
 
-    if(sub_phase == 0)      cccd_live = sub_cccd;
-    else if(sub_phase == 1) cccd_info = sub_cccd;
-    else                    cccd_summary = sub_cccd;
-
-    if(ble_gattc_write_flat(c, sub_cccd, enable, sizeof(enable), on_cccd_written, NULL) != 0)
+    if(ble_gattc_write_flat(c, cccd, enable, sizeof(enable), on_cccd_written, NULL) != 0)
     {
         drop_connection("subscribe write failed");
     }
 
-    sub_cccd = 0;
     return 0;
 }
 
@@ -217,9 +246,13 @@ static int on_cccd_written(uint16_t c, const struct ble_gatt_error *err, struct 
 
     if(err->status != 0)
     {
+        ESP_LOGW(TAG, "CCCD write failed for %s (cccd %u): %d", sub_name ? sub_name : "?",
+                 (unsigned)sub_cccd, err->status);
         drop_connection("subscribe failed");
         return 0;
     }
+
+    log_subscribed();
 
     sub_phase++;
     subscribe_next();
@@ -231,15 +264,30 @@ static void subscribe_next(void)
     /* live is required; info and summary only when the device has them */
     while(sub_phase < 3)
     {
-        uint16_t h = (sub_phase == 0) ? h_live : (sub_phase == 1) ? h_info : h_summary;
+        const int idx = (sub_phase == 0) ? idx_live : (sub_phase == 1) ? idx_info : idx_summary;
 
-        if(h == 0)
+        if(idx < 0)
         {
             sub_phase++;         /* not offered by this device */
             continue;
         }
 
-        if(ble_gattc_disc_all_dscs(conn, h, svc_end, on_sub_dsc, NULL) != 0)
+        sub_name  = (sub_phase == 0) ? "LIVE" : (sub_phase == 1) ? "INFO" : "SUMMARY";
+        sub_value = chr_val[idx];
+        sub_next_def = (idx + 1 < n_chrs) ? chr_def[idx + 1] : 0;
+
+        kneil_chr_dsc_range(sub_value, sub_next_def, svc_end, &sub_first, &sub_last);
+        n_dscs = 0;
+
+        if(sub_last < sub_first)
+        {
+            /* the range would be empty: no descriptors of its own */
+            ESP_LOGW(TAG, "no CCCD for %s (value %u)", sub_name, (unsigned)sub_value);
+            sub_phase++;
+            continue;
+        }
+
+        if(ble_gattc_disc_all_dscs(conn, sub_first, sub_last, on_sub_dsc, NULL) != 0)
         {
             drop_connection("descriptor discovery failed");
         }
@@ -250,11 +298,13 @@ static void subscribe_next(void)
     const uint16_t mtu = (uint16_t)ble_att_mtu(conn);
 
     set_link(KNEIL_LINK_CONNECTED, dev_name, dev_rssi, mtu);
-    ESP_LOGI(TAG, "subscribed (live%s%s), MTU %u", h_info ? " + info" : "", h_summary ? " + summary" : "",
-             (unsigned)mtu);
+    ESP_LOGI(TAG, "subscriptions done, MTU %u", (unsigned)mtu);
 }
 
 /* ------------------------------------------------------------------ notifications */
+
+/* One INFO line per connection, on the first LIVE packet that decodes. */
+static bool first_live_logged;
 
 static void handle_notify(uint16_t attr, struct os_mbuf *om)
 {
@@ -277,6 +327,13 @@ static void handle_notify(uint16_t attr, struct os_mbuf *om)
 
         if(kneil_live_decode(buf, len, &p) == 0)
         {
+            if(!first_live_logged)
+            {
+                first_live_logged = true;
+                ESP_LOGI(TAG, "first LIVE packet, v%u, class %s", (unsigned)p.version,
+                         kneil_class_text(p.cls, p.version));
+            }
+
             on_live_decoded(&p);
 
             char line[KNEIL_LINE_MAX];
@@ -323,6 +380,11 @@ static void handle_notify(uint16_t attr, struct os_mbuf *om)
             emit_line(line, n);
         }
     }
+    else
+    {
+        /* routing is by value handle: this is a notification from a characteristic we did not subscribe to */
+        ESP_LOGD(TAG, "notification on unknown handle %u", (unsigned)attr);
+    }
 }
 
 /* ------------------------------------------------------------------ discovery */
@@ -333,10 +395,20 @@ static int on_chrs(uint16_t c, const struct ble_gatt_error *err, const struct bl
 
     if(err->status == 0 && chr != NULL)
     {
-        if(ble_uuid_cmp(&chr->uuid.u, &LIVE_UUID.u) == 0)         h_live = chr->val_handle;
-        else if(ble_uuid_cmp(&chr->uuid.u, &INFO_UUID.u) == 0)    h_info = chr->val_handle;
-        else if(ble_uuid_cmp(&chr->uuid.u, &SUMMARY_UUID.u) == 0) h_summary = chr->val_handle;
-        else if(ble_uuid_cmp(&chr->uuid.u, &CONTROL_UUID.u) == 0) h_ctrl = chr->val_handle;
+        const int slot = n_chrs;
+
+        if(n_chrs < MAX_CHRS)
+        {
+            chr_def[n_chrs] = chr->def_handle;
+            chr_val[n_chrs] = chr->val_handle;
+            n_chrs++;
+        }
+
+        /* the index lets the subscription search only this characteristic's descriptor range */
+        if(ble_uuid_cmp(&chr->uuid.u, &LIVE_UUID.u) == 0)          { h_live = chr->val_handle;    if(slot < MAX_CHRS) idx_live = slot; }
+        else if(ble_uuid_cmp(&chr->uuid.u, &INFO_UUID.u) == 0)     { h_info = chr->val_handle;    if(slot < MAX_CHRS) idx_info = slot; }
+        else if(ble_uuid_cmp(&chr->uuid.u, &SUMMARY_UUID.u) == 0)  { h_summary = chr->val_handle; if(slot < MAX_CHRS) idx_summary = slot; }
+        else if(ble_uuid_cmp(&chr->uuid.u, &CONTROL_UUID.u) == 0)  h_ctrl = chr->val_handle;
 
         return 0;
     }
@@ -346,6 +418,9 @@ static int on_chrs(uint16_t c, const struct ble_gatt_error *err, const struct bl
         drop_connection("characteristic discovery failed");
         return 0;
     }
+
+    ESP_LOGI(TAG, "%d characteristics: LIVE %u, INFO %u, SUMMARY %u, CONTROL %u", n_chrs,
+             (unsigned)h_live, (unsigned)h_info, (unsigned)h_summary, (unsigned)h_ctrl);
 
     if(h_live == 0)
     {
@@ -541,7 +616,9 @@ static int gap_event(struct ble_gap_event *event, void *arg)
             conn = event->connect.conn_handle;
             svc_start = svc_end = 0;
             h_live = h_info = h_summary = h_ctrl = 0;
-            cccd_live = cccd_info = cccd_summary = 0;
+            n_chrs = 0;
+            idx_live = idx_info = idx_summary = -1;
+            first_live_logged = false;
             set_link(KNEIL_LINK_CONNECTED, dev_name, dev_rssi, 0);
 
             if(!active)
@@ -563,6 +640,8 @@ static int gap_event(struct ble_gap_event *event, void *arg)
             ESP_LOGI(TAG, "KNEIL device disconnected (reason 0x%x)", event->disconnect.reason);
             conn = BLE_HS_CONN_HANDLE_NONE;
             h_live = h_info = h_summary = h_ctrl = 0;
+            n_chrs = 0;
+            idx_live = idx_info = idx_summary = -1;
             set_link(active ? KNEIL_LINK_LOST : KNEIL_LINK_OFF, dev_name, dev_rssi, 0);
             rescan_later();
             return 0;

@@ -234,6 +234,61 @@ static void test_uuids(void)
     CHECK(b[14] == 0xf5 && b[15] == 0xa8);
 }
 
+/* The descriptor layout from the owner's hardware log (service 19..33): LIVE value 21 CCCD 22, RAW value 24
+   CCCD 25, CONTROL value 27 (no CCCD), INFO value 29 CCCD 30, SUMMARY value 32 CCCD 33. The old watch code
+   searched from the value handle to the service end and kept the LAST CCCD, so every subscription wrote
+   handle 33 (the SUMMARY CCCD) and LIVE/INFO were never enabled. */
+static uint16_t old_rule_last_cccd(const uint16_t *handles, int n, uint16_t value, uint16_t svc_end)
+{
+    uint16_t last = 0;
+
+    for(int i = 0; i < n; i++)
+    {
+        if(handles[i] > value && handles[i] <= svc_end)
+        {
+            last = handles[i];
+        }
+    }
+
+    return last;
+}
+
+static void test_cccd_ranges(void)
+{
+    enum { SVC_END = 33 };
+    static const uint16_t DSC[]     = { 22, 25, 30, 33 };
+    static const uint8_t  IS_CCCD[] = { 1, 1, 1, 1 };
+    uint16_t first, last;
+
+    /* the bug, on the record: with the old rule all three subscriptions get one and the same handle */
+    CHECK(old_rule_last_cccd(DSC, 4, 21, SVC_END) == 33);
+    CHECK(old_rule_last_cccd(DSC, 4, 29, SVC_END) == 33);
+    CHECK(old_rule_last_cccd(DSC, 4, 32, SVC_END) == 33);
+
+    /* the fix: each characteristic's own range, first CCCD */
+    CHECK(kneil_cccd_for(21, 23, SVC_END, DSC, IS_CCCD, 4) == 22);   /* LIVE */
+    CHECK(kneil_cccd_for(24, 26, SVC_END, DSC, IS_CCCD, 4) == 25);   /* RAW */
+    CHECK(kneil_cccd_for(27, 28, SVC_END, DSC, IS_CCCD, 4) == 0);    /* CONTROL: no CCCD */
+    CHECK(kneil_cccd_for(29, 31, SVC_END, DSC, IS_CCCD, 4) == 30);   /* INFO */
+    CHECK(kneil_cccd_for(32, 0, SVC_END, DSC, IS_CCCD, 4) == 33);    /* SUMMARY, last in the service */
+
+    /* ranges: value + 1 .. next definition - 1, service end for the last characteristic */
+    kneil_chr_dsc_range(21, 23, SVC_END, &first, &last);
+    CHECK(first == 22 && last == 22);
+    kneil_chr_dsc_range(27, 28, SVC_END, &first, &last);
+    CHECK(first == 28 && last == 27);                               /* empty: nothing between 27 and 28 */
+    kneil_chr_dsc_range(32, 0, SVC_END, &first, &last);
+    CHECK(first == 33 && last == 33);
+
+    /* the SUMMARY CCCD (33) is never taken for LIVE, whatever the callback order */
+    CHECK(kneil_first_cccd(DSC, IS_CCCD, 4, 22, 22) == 22);
+    CHECK(kneil_first_cccd(DSC, IS_CCCD, 4, 30, 30) == 30);
+    CHECK(kneil_first_cccd(DSC, IS_CCCD, 4, 22, 29) == 22);          /* lowest handle in the range */
+
+    /* a v1 device without SUMMARY: INFO is the last characteristic of the service */
+    CHECK(kneil_cccd_for(29, 0, 30, DSC, IS_CCCD, 4) == 30);
+}
+
 int main(void)
 {
     test_decode_live_v2();
@@ -243,6 +298,7 @@ int main(void)
     test_names_and_colours();
     test_page_rebuild_logic();
     test_uuids();
+    test_cccd_ranges();
 
     printf("kneil tests: %d checks, %d failed\n", checks, fails);
     printf("KNEIL TEST: %s\n", fails ? "FAILED" : "PASS");
