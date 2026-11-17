@@ -402,11 +402,6 @@ static void apply_roles(void)
     ble_central_set_active(central_on());
     kneil_central_set_active(kneil_on());
 
-    if(ble_gap_adv_active() && !peripheral_on())
-    {
-        ble_gap_adv_stop();
-    }
-
     if(!synced)
     {
         return;

@@ -167,6 +167,11 @@ void kneil_model_on_info(kneil_model_t *m, const char *text)
     m->have_info = true;
 }
 
+bool kneil_page_needs_rebuild(bool built_kneil, int ble_mode, int kneil_mode)
+{
+    return built_kneil != (ble_mode == kneil_mode);
+}
+
 int kneil_model_history_at(const kneil_model_t *m, int i)
 {
     if(i < 0 || i >= m->hist_count)

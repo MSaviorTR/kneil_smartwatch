@@ -158,6 +158,36 @@ static void test_names_and_colours(void)
     CHECK(strcmp(kneil_link_text(KNEIL_LINK_CONNECTING), "connecting") == 0);
 }
 
+/* The mode can change at run time (Settings -> Mode cycles Phone -> Sensor -> Both -> KNEIL). The UI
+   rebuilds page 1 only when the wanted page differs from the one built, so a refresh never touches
+   widgets of the other page. */
+static void test_page_rebuild_logic(void)
+{
+    enum { MODE_PHONE = 0, MODE_SENSOR = 1, MODE_BOTH = 2, MODE_KNEIL = 3 };   /* app_state.h ble_mode_t */
+
+    CHECK(!kneil_page_needs_rebuild(false, MODE_PHONE, MODE_KNEIL));
+    CHECK(!kneil_page_needs_rebuild(false, MODE_SENSOR, MODE_KNEIL));
+    CHECK(!kneil_page_needs_rebuild(false, MODE_BOTH, MODE_KNEIL));
+    CHECK(!kneil_page_needs_rebuild(true, MODE_KNEIL, MODE_KNEIL));
+    CHECK(kneil_page_needs_rebuild(false, MODE_KNEIL, MODE_KNEIL));   /* entered KNEIL */
+    CHECK(kneil_page_needs_rebuild(true, MODE_PHONE, MODE_KNEIL));    /* left KNEIL */
+    CHECK(kneil_page_needs_rebuild(true, MODE_BOTH, MODE_KNEIL));
+
+    /* a full cycle with the flag updated on each rebuild: one rebuild per mode change, correct page after */
+    bool built = false;
+    const int cycle[] = { MODE_PHONE, MODE_SENSOR, MODE_BOTH, MODE_KNEIL, MODE_KNEIL, MODE_PHONE, MODE_SENSOR };
+
+    for(int i = 0; i < (int)(sizeof(cycle) / sizeof(cycle[0])); i++)
+    {
+        if(kneil_page_needs_rebuild(built, cycle[i], MODE_KNEIL))
+        {
+            built = (cycle[i] == MODE_KNEIL);
+        }
+
+        CHECK(built == (cycle[i] == MODE_KNEIL));
+    }
+}
+
 int main(void)
 {
     test_decode_live_v2();
@@ -165,6 +195,7 @@ int main(void)
     test_decode_summary();
     test_model_sequence();
     test_names_and_colours();
+    test_page_rebuild_logic();
 
     printf("kneil tests: %d checks, %d failed\n", checks, fails);
     printf("KNEIL TEST: %s\n", fails ? "FAILED" : "PASS");

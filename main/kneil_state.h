@@ -80,6 +80,11 @@ void kneil_model_on_summary(kneil_model_t *m, const kneil_summary_t *s);
 void kneil_model_on_info(kneil_model_t *m, const char *text);
 
 /* ---- readers (UI, console) -------------------------------------------- */
+/* Which page page 1 holds. The UI builds page 1 once (face or KNEIL page) and must rebuild it when the
+   BLE mode enters or leaves KNEIL - otherwise the refresh would touch widgets that were never created.
+   Pure integer logic so the host tests can cover it. */
+bool kneil_page_needs_rebuild(bool built_kneil, int ble_mode, int kneil_mode);
+
 /* Class at `i` back in time (0 = newest), KNEIL_CLASS_NONE where there is no packet. */
 int  kneil_model_history_at(const kneil_model_t *m, int i);
 /* Age of the last LIVE packet in seconds, -1 if none yet. */
