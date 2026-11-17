@@ -134,20 +134,28 @@ static bool built_kneil;
 static void build_page1(bool kneil)
 {
     lv_obj_t *tile = ui_tiles[UI_PAGE_FACE];
+    const bool had_page = lv_obj_get_child_count(tile) > 0;
 
-    /* stop the face's value glides before its labels are deleted (safe if the face is not built) */
-    ui_face_destroy();
-    lv_obj_clean(tile);
+    /* stop the face's value glides before its labels are deleted (safe if the face is not built); at the
+       first call the tile is empty, exactly as upstream leaves it in ui_init() */
+    if(had_page)
+    {
+        ui_face_destroy();
+        lv_obj_clean(tile);
+    }
 
     /* ui_page() puts a flex layout and its padding on the tile; the face page expects the plain tile
-       that ui_init() creates. Clear those again (the tile's size and position belong to the tileview,
-       so no style is removed wholesale). */
-    lv_obj_set_layout(tile, LV_LAYOUT_NONE);
-    lv_obj_set_style_pad_all(tile, 0, 0);
-    lv_obj_set_style_pad_row(tile, 0, 0);
-    lv_obj_set_style_pad_column(tile, 0, 0);
-    lv_obj_set_scroll_dir(tile, LV_DIR_NONE);
-    lv_obj_set_scrollbar_mode(tile, LV_SCROLLBAR_MODE_OFF);
+       that ui_init() creates. Only the KNEIL page leaves those behind, so only then clear them again
+       (the tile's size and position belong to the tileview, so no style is removed wholesale). */
+    if(built_kneil)
+    {
+        lv_obj_set_layout(tile, LV_LAYOUT_NONE);
+        lv_obj_set_style_pad_all(tile, 0, 0);
+        lv_obj_set_style_pad_row(tile, 0, 0);
+        lv_obj_set_style_pad_column(tile, 0, 0);
+        lv_obj_set_scroll_dir(tile, LV_DIR_NONE);
+        lv_obj_set_scrollbar_mode(tile, LV_SCROLLBAR_MODE_OFF);
+    }
 
     if(kneil)
     {
@@ -159,8 +167,13 @@ static void build_page1(bool kneil)
     }
 
     built_kneil = kneil;
+}
 
-    if(kneil)
+/* First paint of page 1, and after a rebuild. ui_init() calls this where upstream refreshed the face:
+   after every page exists (the face's trend card needs the finished layout). */
+static void refresh_page1(void)
+{
+    if(built_kneil)
     {
         ui_kneil_refresh();
     }
@@ -181,6 +194,7 @@ static void sync_page1(void)
     if(kneil_page_needs_rebuild(built_kneil, s.ble_mode, BLE_MODE_KNEIL))
     {
         build_page1(s.ble_mode == BLE_MODE_KNEIL);
+        refresh_page1();
     }
 }
 
@@ -329,9 +343,10 @@ static void refresh_cb(lv_timer_t *t)
     /* 250 ms tick: the face animates every tick, slower pages less often. */
     lv_obj_t *tile = lv_tileview_get_tile_active(ui_tv);
 
-    /* Before the first scroll there is no active tile yet: that's the face (see update_dots), which in
-       KNEIL mode holds the KNEIL page. Without this the pages would only refresh after a swipe. */
-    if(tile == NULL)
+    /* Before the first scroll there is no active tile yet (see update_dots). LVGL never dispatches a page
+       refresh in that state, so the KNEIL page would be frozen until the first swipe: only in KNEIL mode,
+       treat it as the page that is on screen. With KNEIL not selected this stays exactly upstream. */
+    if(tile == NULL && built_kneil)
     {
         tile = ui_tiles[UI_PAGE_FACE];
     }
@@ -413,6 +428,7 @@ void ui_init(void)
     ui_time_create();
     ui_alert_create();
 
+    refresh_page1();   /* first paint, at the point upstream refreshed the face */
 
     /* Splash fades into the watch face and is freed afterwards. */
     lv_screen_load_anim(ui_scr_main, LV_SCR_LOAD_ANIM_FADE_IN, 500, SPLASH_MS, true);

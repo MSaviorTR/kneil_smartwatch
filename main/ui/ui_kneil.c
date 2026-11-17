@@ -116,6 +116,8 @@ void ui_kneil_create(lv_obj_t *tile)
     lv_obj_t *card = ui_card(tile);
     link_lbl = ui_label(card, "not started", &lv_font_montserrat_20, UI_COL_TEXT);
     meta_lbl = ui_label(card, "-", &lv_font_montserrat_14, UI_COL_DIM);
+    lv_label_set_long_mode(meta_lbl, LV_LABEL_LONG_WRAP);   /* two lines at 410 px */
+    lv_obj_set_width(meta_lbl, LV_PCT(100));
 
     /* the decision */
     class_box = lv_obj_create(tile);
