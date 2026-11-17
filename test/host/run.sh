@@ -8,10 +8,16 @@ set -e
 cd "$(dirname "$0")"
 mkdir -p build
 
-CFLAGS="-std=c11 -Wall -Wextra -Werror -O1 -g -fsanitize=address,undefined -I../../main"
+# ASan/UBSan by default. On a toolchain without libasan/libubsan (this Windows MSYS2 UCRT64 has none)
+# run with SAN= (no sanitizers) - the tests are identical, only the memory checks are skipped.
+SAN=${SAN--fsanitize=address,undefined}
+CFLAGS="-std=c11 -Wall -Wextra -Werror -O1 -g $SAN -I../../main -I../../components/kneil_proto"
 
 cc $CFLAGS test_main.c ../../main/sensor_protocol.c ../../main/calibration.c -lm -o build/host_tests
 cc $CFLAGS parse_stdin.c ../../main/sensor_protocol.c -lm -o build/parse_stdin
+
+# KNEIL monitor: protocol decode (components/kneil_proto, copied from the KNEIL firmware) + the page model
+cc $CFLAGS test_kneil.c ../../components/kneil_proto/kneil_proto.c ../../main/kneil_state.c -lm -o build/kneil_tests
 
 # app_state needs ESP-IDF headers: stand-ins live in stubs/ and ../sim/stubs/
 cc $CFLAGS -std=gnu11 -Istubs -I../sim/stubs \
@@ -21,7 +27,10 @@ cc $CFLAGS -std=gnu11 -Istubs -I../sim/stubs \
 
 ./build/host_tests
 ./build/app_state_tests
+./build/kneil_tests
 
 echo "contract: 200 emulator frames, 10% deliberately corrupted"
-python3 ../../tools/sensor_mcu_emulator.py --stdout --rate 1000 --count 200 \
+# PYTHON=python on a Windows shell where python3 is the Store stub
+PYTHON=${PYTHON:-python3}
+$PYTHON ../../tools/sensor_mcu_emulator.py --stdout --rate 1000 --count 200 \
         --scenario spike --corrupt 0.1 | ./build/parse_stdin

@@ -13,6 +13,8 @@
 #include "esp_timer.h"
 
 #include "app_state.h"
+#include "kneil_central.h"
+#include "kneil_state.h"
 #include "ble_service.h"
 #include "data_logger.h"
 #include "rtc_service.h"
@@ -309,6 +311,48 @@ static int cmd_frame(int argc, char **argv)
     }
 }
 
+/* KNEIL monitor: one status line, and an optional text-line stream for the PC.
+   `kneil`                  status: link, device, RSSI, MTU, version, class, counters
+   `kneil lines on|off`     print every received LIVE / INFO / SUMMARY as the KNEIL protocol lines
+                            (L,..., I,..., D,...) so the PC can watch the same stream. Raw streaming is
+                            not forwarded: this is not a replacement for the XIAO bridge. */
+static int cmd_kneil(int argc, char **argv)
+{
+    if(argc >= 2 && strcmp(argv[1], "lines") == 0)
+    {
+        if(argc != 3 || (strcmp(argv[2], "on") != 0 && strcmp(argv[2], "off") != 0))
+        {
+            printf("usage: kneil lines on|off\n");
+            return 1;
+        }
+
+        kneil_central_set_lines(strcmp(argv[2], "on") == 0);
+        printf("kneil lines %s\n", kneil_central_lines() ? "on" : "off");
+        return 0;
+    }
+
+    if(argc != 1)
+    {
+        printf("usage: kneil | kneil lines on|off\n");
+        return 1;
+    }
+
+    kneil_model_t m;
+    kneil_central_snapshot(&m);
+
+    printf("kneil: %s%s%s%s rssi=%d mtu=%u v%u pkts=%lu gaps=%lu class=%s raw=%s vote=%d posture=%s "
+           "sts=%lu s2s=%lu bed=%lu summary=%s lines=%s\n",
+           kneil_link_text(m.link), m.name[0] ? " " : "", m.name[0] ? m.name : "", "",
+           m.rssi, (unsigned)m.mtu, (unsigned)m.version,
+           (unsigned long)m.packets, (unsigned long)m.gaps,
+           kneil_class_text(m.cls, m.version), kneil_class_text(m.cls_raw, m.version),
+           (m.vote_pct == KNEIL_VOTE_NONE) ? -1 : m.vote_pct,
+           kneil_posture_text(m.posture),
+           (unsigned long)m.n_sit_to_stand, (unsigned long)m.n_stand_to_sit, (unsigned long)m.n_bed_transfer,
+           m.have_summary ? "yes" : "no", kneil_central_lines() ? "on" : "off");
+    return 0;
+}
+
 /* ------------------------------------------------------------------ */
 
 esp_err_t usb_console_start(void)
@@ -337,6 +381,7 @@ esp_err_t usb_console_start(void)
         { .command = "cat",     .help = "cat <file> - dump a log file",        .func = cmd_cat },
         { .command = "rm",      .help = "rm <file> | rm all",                  .func = cmd_rm },
         { .command = "frame",   .help = "frame <$GKS line> - live data over USB", .func = cmd_frame },
+        { .command = "kneil",   .help = "kneil | kneil lines on|off - KNEIL monitor status / text lines", .func = cmd_kneil },
     };
 
     for(size_t i = 0; i < sizeof(cmds) / sizeof(cmds[0]); i++)
