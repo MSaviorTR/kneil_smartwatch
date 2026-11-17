@@ -5,3 +5,4 @@
 #define MALLOC_CAP_8BIT   0
 static inline void *heap_caps_malloc(size_t n, unsigned caps) { (void)caps; return malloc(n); }
 static inline void *heap_caps_calloc(size_t c, size_t n, unsigned caps) { (void)caps; return calloc(c, n); }
+static inline void heap_caps_free(void *p) { free(p); }

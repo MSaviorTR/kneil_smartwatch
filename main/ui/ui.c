@@ -3,6 +3,8 @@
 
 #include "ui.h"
 #include "ui_internal.h"
+#include "app_state.h"
+#include "kneil_state.h"
 
 #define REFRESH_MS      250
 #define SPLASH_MS       1800
@@ -123,22 +125,37 @@ lv_obj_t *ui_card(lv_obj_t *parent)
     return card;
 }
 
-/* Page 1 holds the watch face, or the KNEIL monitor when Settings -> Mode is "KNEIL device". The mode can be
-   changed at run time, so the page is rebuilt on the LVGL thread when it enters or leaves KNEIL; uilt_kneil`r
-   remembers which one the tile currently holds (refreshing the wrong one would touch NULL widgets). */
+/* Page 1 holds the watch face, or the KNEIL monitor when Settings -> Mode is "KNEIL device". The mode can
+   be changed at run time, so the page is rebuilt on the LVGL thread when it enters or leaves KNEIL.
+   built_kneil remembers which one the tile currently holds: refreshing the wrong page would touch widgets
+   that were never created. */
 static bool built_kneil;
 
 static void build_page1(bool kneil)
 {
-    lv_obj_clean(ui_tiles[UI_PAGE_FACE]);
+    lv_obj_t *tile = ui_tiles[UI_PAGE_FACE];
+
+    /* stop the face's value glides before its labels are deleted (safe if the face is not built) */
+    ui_face_destroy();
+    lv_obj_clean(tile);
+
+    /* ui_page() puts a flex layout and its padding on the tile; the face page expects the plain tile
+       that ui_init() creates. Clear those again (the tile's size and position belong to the tileview,
+       so no style is removed wholesale). */
+    lv_obj_set_layout(tile, LV_LAYOUT_NONE);
+    lv_obj_set_style_pad_all(tile, 0, 0);
+    lv_obj_set_style_pad_row(tile, 0, 0);
+    lv_obj_set_style_pad_column(tile, 0, 0);
+    lv_obj_set_scroll_dir(tile, LV_DIR_NONE);
+    lv_obj_set_scrollbar_mode(tile, LV_SCROLLBAR_MODE_OFF);
 
     if(kneil)
     {
-        ui_kneil_create(ui_tiles[UI_PAGE_FACE]);
+        ui_kneil_create(tile);
     }
     else
     {
-        ui_face_create(ui_tiles[UI_PAGE_FACE]);
+        ui_face_create(tile);
     }
 
     built_kneil = kneil;
@@ -311,6 +328,13 @@ static void refresh_cb(lv_timer_t *t)
 
     /* 250 ms tick: the face animates every tick, slower pages less often. */
     lv_obj_t *tile = lv_tileview_get_tile_active(ui_tv);
+
+    /* Before the first scroll there is no active tile yet: that's the face (see update_dots), which in
+       KNEIL mode holds the KNEIL page. Without this the pages would only refresh after a swipe. */
+    if(tile == NULL)
+    {
+        tile = ui_tiles[UI_PAGE_FACE];
+    }
 
     if(tile == ui_tiles[UI_PAGE_FACE])
     {

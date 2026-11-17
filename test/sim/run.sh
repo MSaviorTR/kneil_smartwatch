@@ -9,7 +9,7 @@ LVGL=../../managed_components/lvgl__lvgl
 [ -d "$LVGL" ] || { echo "run 'idf.py build' once so LVGL is downloaded"; exit 1; }
 
 mkdir -p build/obj out
-CFLAGS="-std=gnu11 -O1 -w -DLV_CONF_INCLUDE_SIMPLE -I. -I$LVGL -Istubs -I../../main -I../../main/ui -I../../components/kneil_proto \
+CFLAGS="-std=gnu11 -O1 -w -DLV_CONF_INCLUDE_SIMPLE -D_POSIX_C_SOURCE=200809L -I. -I$LVGL -Istubs -I../../main -I../../main/ui -I../../components/kneil_proto \
         -DCONFIG_GW_LINK_UART_NUM=1 -DCONFIG_GW_LINK_RX_GPIO=44 -DCONFIG_GW_LINK_BAUD=115200"
 
 # LVGL is compiled once into a static library and reused.
@@ -28,8 +28,11 @@ for s in live alert demo uncal nodata kneil; do
     ./build/ui_sim "$s" out
 done
 
-for f in out/*.bmp; do
-    sips -s format png "$f" --out "${f%.bmp}.png" >/dev/null && rm "$f"
-done
+# PNGs on macOS (sips); elsewhere the BMPs are left as they are.
+if command -v sips >/dev/null 2>&1; then
+    for f in out/*.bmp; do
+        sips -s format png "$f" --out "${f%.bmp}.png" >/dev/null && rm "$f"
+    done
+fi
 
 echo "screenshots in $(pwd)/out"

@@ -25,7 +25,7 @@ static const ble_uuid128_t LIVE_UUID    = KNEIL_UUID128(0x0002);
 static const ble_uuid128_t CONTROL_UUID = KNEIL_UUID128(0x0004);
 static const ble_uuid128_t INFO_UUID    = KNEIL_UUID128(0x0005);
 static const ble_uuid128_t SUMMARY_UUID = KNEIL_UUID128(0x0006);
-static const ble_uuid16_t  CCCD_UUID    = BLE_UUID16_DECLARE(0x2902);
+static const ble_uuid16_t  CCCD_UUID    = BLE_UUID16_INIT(0x2902);
 
 #define CONNECT_TIMEOUT_MS     10000
 #define RESCAN_DELAY_MS        2000
@@ -574,7 +574,7 @@ static void ctrl_kick(void);
 
 static int on_ctrl_written(uint16_t c, const struct ble_gatt_error *err, struct ble_gatt_attr *attr, void *arg)
 {
-    (void)c; (void)p;
+    (void)c; (void)attr; (void)arg;
     ctrl_busy = false;
 
     if(err->status != 0)

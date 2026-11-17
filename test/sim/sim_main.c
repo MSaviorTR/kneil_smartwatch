@@ -295,8 +295,52 @@ static void run_ms(uint32_t ms)
     }
 }
 
-/* 32-bit top-down BMP; LVGL's XRGB8888 is B,G,R,X in memory like BMP. */
-static void save(const char *dir, const char *name)
+/* Click a button by its label, as a finger would (used by the KNEIL scenario). */
+static lv_obj_t *find_button(lv_obj_t *root, const char *text)
+{
+    const uint32_t n = lv_obj_get_child_count(root);
+
+    for(uint32_t i = 0; i < n; i++)
+    {
+        lv_obj_t *c = lv_obj_get_child(root, i);
+
+        if(lv_obj_check_type(c, &lv_button_class))
+        {
+            lv_obj_t *lbl = lv_obj_get_child(c, 0);
+
+            if(lbl != NULL && lv_obj_check_type(lbl, &lv_label_class) &&
+               strcmp(lv_label_get_text(lbl), text) == 0)
+            {
+                return c;
+            }
+        }
+
+        lv_obj_t *r = find_button(c, text);
+
+        if(r != NULL)
+        {
+            return r;
+        }
+    }
+
+    return NULL;
+}
+
+static void click_button(lv_obj_t *root, const char *text)
+{
+    lv_obj_t *b = find_button(root, text);
+
+    if(b != NULL)
+    {
+        lv_obj_send_event(b, LV_EVENT_CLICKED, NULL);
+    }
+    else
+    {
+        fprintf(stderr, "button '%s' not found\n", text);
+    }
+}
+
+/* 32-bit top-down BMP; LVGL's XRGB8888 is B,G,R,X in memory like BMP. */static void save(const char *dir, const char *name)
 {
     lv_refr_now(NULL);
 
@@ -352,7 +396,12 @@ int main(int argc, char **argv)
         if(strcmp(argv[1], names[i]) == 0) sc = (scenario_t)i;
     }
 
+    /* mingw (the Windows host build) has no setenv(); _putenv_s() does the same here. */
+#ifdef _WIN32
+    _putenv_s("TZ", "GMT0BST,M3.5.0/1,M10.5.0");
+#else
     setenv("TZ", "GMT0BST,M3.5.0/1,M10.5.0", 1);
+#endif
     tzset();
 
     if(sc == SC_KNEIL)
@@ -395,6 +444,35 @@ int main(int argc, char **argv)
         ui_open_time();
         run_ms(800);
         save(out, "06_set_time");
+    }
+
+    if(sc == SC_KNEIL)
+    {
+        /* the other link states of the KNEIL page */
+        kneil_model_set_link(&kneil_demo, KNEIL_LINK_SCANNING, "", 0, 0);
+        run_ms(600);
+        save(out, "07_kneil_scanning");
+
+        kneil_model_set_link(&kneil_demo, KNEIL_LINK_CONNECTED, "KNEIL-7AD1", -48, 247);
+        kneil_demo.last_live_us = esp_timer_get_time() - 1000000;
+        run_ms(600);
+        save(out, "08_kneil_connected");
+
+        /* Reset day -> confirmation overlay on the top layer */
+        click_button(ui_tiles[UI_PAGE_FACE], "Reset day");
+        run_ms(400);
+        save(out, "09_kneil_reset_dialog");
+        click_button(lv_layer_top(), "Cancel");
+        run_ms(400);
+
+        /* Settings -> Mode cycles at run time: page 1 is rebuilt as the watch face and back */
+        settings.ble_mode = BLE_MODE_PHONE;
+        run_ms(800);
+        save(out, "10_mode_phone_face");
+
+        settings.ble_mode = BLE_MODE_KNEIL;
+        run_ms(800);
+        save(out, "11_mode_kneil_again");
     }
 
     return 0;

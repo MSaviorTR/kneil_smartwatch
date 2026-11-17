@@ -127,7 +127,7 @@ void ui_kneil_create(lv_obj_t *tile)
     lv_obj_set_flex_flow(class_box, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(class_box, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_remove_flag(class_box, LV_OBJ_FLAG_SCROLLABLE);
-    class_lbl = ui_label(class_box, "no data", &lv_font_montserrat_28, UI_COL_TEXT);
+    class_lbl = ui_label(class_box, "no data", &lv_font_montserrat_26, UI_COL_TEXT);
     age_lbl = ui_label(class_box, "-", &lv_font_montserrat_14, UI_COL_DIM);
     raw_lbl = ui_label(class_box, "-", &lv_font_montserrat_14, UI_COL_DIM);
     posture_lbl = ui_label(class_box, "-", &lv_font_montserrat_14, UI_COL_DIM);
@@ -230,12 +230,24 @@ void ui_kneil_refresh(void)
         lv_label_set_text(class_lbl, kneil_class_text(m.cls, m.version));
         lv_obj_set_style_bg_color(class_box, lv_color_hex(kneil_class_colour(m.cls, m.version)), 0);
         lv_obj_set_style_text_color(class_lbl, lv_color_hex(0x000000), 0);
+        lv_obj_set_style_text_color(age_lbl, lv_color_hex(0x000000), 0);
+        lv_obj_set_style_text_color(raw_lbl, lv_color_hex(0x000000), 0);
+        lv_obj_set_style_text_color(posture_lbl, lv_color_hex(0x000000), 0);
+        lv_obj_set_style_text_opa(age_lbl, LV_OPA_70, 0);
+        lv_obj_set_style_text_opa(raw_lbl, LV_OPA_70, 0);
+        lv_obj_set_style_text_opa(posture_lbl, LV_OPA_70, 0);
     }
     else
     {
         lv_label_set_text(class_lbl, "no data");
         lv_obj_set_style_bg_color(class_box, UI_COL_TRACK, 0);
         lv_obj_set_style_text_color(class_lbl, UI_COL_TEXT, 0);
+        lv_obj_set_style_text_color(age_lbl, UI_COL_DIM, 0);
+        lv_obj_set_style_text_color(raw_lbl, UI_COL_DIM, 0);
+        lv_obj_set_style_text_color(posture_lbl, UI_COL_DIM, 0);
+        lv_obj_set_style_text_opa(age_lbl, LV_OPA_COVER, 0);
+        lv_obj_set_style_text_opa(raw_lbl, LV_OPA_COVER, 0);
+        lv_obj_set_style_text_opa(posture_lbl, LV_OPA_COVER, 0);
     }
 
     if(age < 0)
@@ -301,15 +313,16 @@ void ui_kneil_refresh(void)
     if(m.have_summary)
     {
         const kneil_summary_t *s = &m.summary;
+        char sum[192];
 
-        snprintf(buf, sizeof(buf),
+        snprintf(sum, sizeof(sum),
                  "walk %u, stairs %u/%u, still %u (sit %u / stand %u / ? %u), lying %u min\n"
                  "sit-to-stand %u, stand-to-sit %u, bed %u, steps %u, cadence %.1f/min",
                  s->minutes_by_class[0], s->minutes_by_class[1], s->minutes_by_class[2],
                  s->minutes_by_class[3], s->minutes_sitting, s->minutes_standing,
                  s->minutes_still_unknown, s->minutes_by_class[4],
                  s->n_sit_to_stand, s->n_stand_to_sit, s->n_bed_transfer, s->steps, s->cadence_x10 / 10.0);
-        lv_label_set_text(summary_lbl, buf);
+        lv_label_set_text(summary_lbl, sum);
     }
     else
     {

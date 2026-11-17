@@ -189,6 +189,21 @@ static void stop_anim(int32_t *shown, lv_anim_exec_xcb_t cb)
     *shown = INT32_MIN;
 }
 
+/* Called by ui.c before page 1 is rebuilt (Settings -> Mode entering or leaving KNEIL): stop the running
+   value glides so they cannot write into labels that are about to be deleted, and release the history
+   buffer. Safe to call when the face is not the built page (nothing is running, hist is NULL). */
+void ui_face_destroy(void)
+{
+    stop_anim(&k_shown, k_anim_cb);
+    stop_anim(&ph_shown, ph_anim_cb);
+
+    if(hist != NULL)
+    {
+        heap_caps_free(hist);
+        hist = NULL;
+    }
+}
+
 /* ------------------------------------------------------------------
    Build
    ------------------------------------------------------------------ */

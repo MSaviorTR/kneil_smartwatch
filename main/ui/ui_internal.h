@@ -69,6 +69,8 @@ void ui_kneil_create(lv_obj_t *tile);
 void ui_kneil_refresh(void);
 
 void ui_face_create(lv_obj_t *tile);
+/* Stop the face's running animations and free its history buffer, before page 1 is rebuilt. */
+void ui_face_destroy(void);
 void ui_face_refresh(void);
 void ui_face_refresh_slow(void);     /* sparkline + trend arrow, every 2 s */
 void ui_trend_create(lv_obj_t *tile);
