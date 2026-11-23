@@ -14,6 +14,7 @@
 
 #include "app_state.h"
 #include "ble_central.h"
+#include "ble_roles.h"
 #include "ble_service.h"
 #include "ble_uuids.h"
 #include "kneil_central.h"
@@ -389,7 +390,9 @@ esp_err_t ble_service_start(void)
     kneil_central_set_active(kneil_on());
     nimble_port_freertos_init(host_task);
 
-    static const char *MODE_TXT[] = { "phone", "sensor", "phone + sensor", "kneil device" };
+    static const char *const MODE_TXT[BLE_MODE_COUNT] = { "phone", "sensor", "phone + sensor", "kneil device" };
+    _Static_assert(sizeof(MODE_TXT) / sizeof(MODE_TXT[0]) == BLE_MODE_COUNT,
+                   "MODE_TXT must have one name per ble_mode_t");
     ESP_LOGI(TAG, "started as \"%s\", mode %s%s", CONFIG_GW_BLE_DEVICE_NAME,
              MODE_TXT[mode % BLE_MODE_COUNT], enabled ? "" : " (Bluetooth off)");
 
@@ -399,8 +402,22 @@ esp_err_t ble_service_start(void)
 /* Brings both roles in line with `enabled` and `mode`. */
 static void apply_roles(void)
 {
-    ble_central_set_active(central_on());
-    kneil_central_set_active(kneil_on());
+    ble_role_step_t steps[BLE_ROLES_MAX_STEPS];
+    const int n = ble_roles_plan(central_on(), kneil_on(), steps);
+
+    /* Inactive first, then active (F3): a central that is still scanning or connecting would keep the
+       radio busy, and the new one's start_scan() would return on ble_gap_disc_active() and stay idle. */
+    for(int i = 0; i < n; i++)
+    {
+        if(steps[i].role == BLE_ROLE_CENTRAL)
+        {
+            ble_central_set_active(steps[i].on);
+        }
+        else
+        {
+            kneil_central_set_active(steps[i].on);
+        }
+    }
 
     if(!synced)
     {

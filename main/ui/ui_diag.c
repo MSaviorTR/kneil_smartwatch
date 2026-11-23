@@ -141,7 +141,10 @@ void ui_diag_refresh(void)
     ble_status_t bs;
     ble_service_status(&bs);
 
-    static const char *mode_txt[] = { "phone only", "sensor only", "phone + sensor" };
+    static const char *const mode_txt[BLE_MODE_COUNT] = { "phone only", "sensor only", "phone + sensor",
+                                                          "KNEIL device" };
+    _Static_assert(sizeof(mode_txt) / sizeof(mode_txt[0]) == BLE_MODE_COUNT,
+                   "mode_txt must have one name per ble_mode_t");
     bool phone_role  = bs.enabled && bs.mode != BLE_MODE_SENSOR;
     bool sensor_role = bs.enabled && bs.mode != BLE_MODE_PHONE;
     char sensor[64];

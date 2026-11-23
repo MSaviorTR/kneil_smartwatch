@@ -67,12 +67,14 @@ static void apply_switch(lv_event_t *e)
     app_state_set_settings(&s);
 }
 
-static const char *BLE_MODE_TXT[BLE_MODE_COUNT] = {
+static const char *const BLE_MODE_TXT[BLE_MODE_COUNT] = {
     [BLE_MODE_PHONE]  = "Phone only",
     [BLE_MODE_SENSOR] = "Sensor only",
     [BLE_MODE_BOTH]   = "Phone + sensor",
     [BLE_MODE_KNEIL]  = "KNEIL device",
 };
+_Static_assert(sizeof(BLE_MODE_TXT) / sizeof(BLE_MODE_TXT[0]) == BLE_MODE_COUNT,
+               "BLE_MODE_TXT must have one name per ble_mode_t");
 
 static void ble_mode_text(uint8_t mode)
 {

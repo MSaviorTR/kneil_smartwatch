@@ -103,7 +103,9 @@ static int cmd_status(int argc, char **argv)
 
     ble_status_t b;
     ble_service_status(&b);
-    static const char *bmode[] = { "phone", "sensor", "phone+sensor" };
+    static const char *const bmode[BLE_MODE_COUNT] = { "phone", "sensor", "phone+sensor", "kneil" };
+    _Static_assert(sizeof(bmode) / sizeof(bmode[0]) == BLE_MODE_COUNT,
+                   "bmode must have one name per ble_mode_t");
     printf("ble      %s  phone=%s  sensor=%s%s%s frames=%lu\n",
            b.enabled ? bmode[b.mode % BLE_MODE_COUNT] : "OFF",
            b.phone_connected ? "connected" : b.advertising ? "advertising" : "-",
