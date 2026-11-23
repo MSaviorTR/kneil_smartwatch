@@ -17,7 +17,9 @@ cc $CFLAGS test_main.c ../../main/sensor_protocol.c ../../main/calibration.c -lm
 cc $CFLAGS parse_stdin.c ../../main/sensor_protocol.c -lm -o build/parse_stdin
 
 # KNEIL monitor: protocol decode (components/kneil_proto, copied from the KNEIL firmware) + the page model
-cc $CFLAGS test_kneil.c ../../components/kneil_proto/kneil_proto.c ../../main/kneil_state.c -lm -o build/kneil_tests
+# and the pure CONTROL-queue / role-order logic
+cc $CFLAGS test_kneil.c ../../components/kneil_proto/kneil_proto.c ../../main/kneil_state.c \
+   ../../main/kneil_ctrl_queue.c ../../main/ble_roles.c -lm -o build/kneil_tests
 
 # app_state needs ESP-IDF headers: stand-ins live in stubs/ and ../sim/stubs/
 cc $CFLAGS -std=gnu11 -Istubs -I../sim/stubs \

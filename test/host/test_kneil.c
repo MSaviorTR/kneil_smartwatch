@@ -1,12 +1,16 @@
 /*
- * Host tests for the KNEIL monitor: the protocol decode and the page model.
+ * Host tests for the KNEIL monitor: the protocol decode, the page model, and the pure CONTROL-queue and
+ * role-order logic.
  * Uses the same example packets as the KNEIL firmware's protocol unit test
  * (kneil_firmware/protocol/test_kneil_proto.c) so all three implementations agree.
- * No ESP-IDF, no BLE: only components/kneil_proto and main/kneil_state.c.
+ * No ESP-IDF, no BLE: only components/kneil_proto, main/kneil_state.c, main/kneil_ctrl_queue.c and
+ * main/ble_roles.c.
  */
 #include <stdio.h>
 #include <string.h>
 
+#include "ble_roles.h"
+#include "kneil_ctrl_queue.h"
 #include "kneil_proto.h"
 #include "kneil_state.h"
 
@@ -323,6 +327,117 @@ static void test_dsc_disc_args(void)
     CHECK(start != 22);
 }
 
+/* CONTROL bytes: four waiting, one in flight. A full queue must say so (the UI used to be told `true`
+   and the byte was dropped), and a completion that arrives after the connection is gone must not
+   release a write that belongs to the next connection (F2). */
+static void test_ctrl_queue(void)
+{
+    kneil_ctrl_queue_t q;
+    uint8_t b = 0;
+
+    kneil_ctrl_queue_reset(&q);
+    CHECK(kneil_ctrl_queue_count(&q) == 0);
+    CHECK(!kneil_ctrl_queue_busy(&q));
+    CHECK(!kneil_ctrl_queue_take(&q, &b));                 /* nothing queued */
+
+    CHECK(kneil_ctrl_queue_push(&q, KNEIL_CTRL_SUMMARY));
+    CHECK(kneil_ctrl_queue_push(&q, KNEIL_CTRL_SELFTEST));
+    CHECK(kneil_ctrl_queue_push(&q, KNEIL_CTRL_RESET));
+    CHECK(kneil_ctrl_queue_push(&q, 0x7f));
+    CHECK(!kneil_ctrl_queue_push(&q, 0x55));               /* full: false and not queued */
+    CHECK(kneil_ctrl_queue_count(&q) == KNEIL_CTRL_QUEUE_SIZE);
+
+    CHECK(kneil_ctrl_queue_take(&q, &b) && b == KNEIL_CTRL_SUMMARY);   /* oldest first */
+    CHECK(kneil_ctrl_queue_busy(&q));
+    CHECK(!kneil_ctrl_queue_take(&q, &b));                 /* one write in flight */
+    CHECK(kneil_ctrl_queue_count(&q) == KNEIL_CTRL_QUEUE_SIZE - 1);
+
+    /* the write could not be started: the byte goes back to the front, then busy is cleared */
+    kneil_ctrl_queue_requeue(&q, KNEIL_CTRL_SUMMARY);
+    CHECK(kneil_ctrl_queue_count(&q) == KNEIL_CTRL_QUEUE_SIZE);
+    kneil_ctrl_queue_done(&q);
+    CHECK(!kneil_ctrl_queue_busy(&q));
+
+    CHECK(kneil_ctrl_queue_take(&q, &b) && b == KNEIL_CTRL_SUMMARY);
+    kneil_ctrl_queue_done(&q);
+    CHECK(kneil_ctrl_queue_take(&q, &b) && b == KNEIL_CTRL_SELFTEST);
+    kneil_ctrl_queue_done(&q);
+
+    /* disconnect / host reset with a write in flight: empty and idle again */
+    kneil_ctrl_queue_reset(&q);
+    CHECK(kneil_ctrl_queue_count(&q) == 0);
+    CHECK(!kneil_ctrl_queue_busy(&q));
+    CHECK(!kneil_ctrl_queue_take(&q, &b));
+
+    /* the ring wraps: four queued, one taken, one pushed, then all four drained in order */
+    for(int i = 1; i <= 4; i++)
+    {
+        CHECK(kneil_ctrl_queue_push(&q, (uint8_t)i));
+    }
+
+    CHECK(kneil_ctrl_queue_take(&q, &b) && b == 1);
+    kneil_ctrl_queue_done(&q);
+    CHECK(kneil_ctrl_queue_push(&q, 5));
+    CHECK(kneil_ctrl_queue_count(&q) == 4);
+
+    for(int i = 2; i <= 5; i++)
+    {
+        CHECK(kneil_ctrl_queue_take(&q, &b) && b == (uint8_t)i);
+        kneil_ctrl_queue_done(&q);
+    }
+
+    CHECK(!kneil_ctrl_queue_take(&q, &b));
+}
+
+/* F3: the central that becomes inactive is switched off before the new one is switched on. The shadow
+   of the old apply_roles() (sensor central first, KNEIL second) left the sensor central idle after
+   KNEIL -> Sensor only, because its start_scan() found KNEIL's discovery still active. */
+static void test_role_plan(void)
+{
+    ble_role_step_t s[BLE_ROLES_MAX_STEPS];
+
+    /* Sensor only (or Phone + sensor) leaving KNEIL: KNEIL off, then the sensor central on */
+    CHECK(ble_roles_plan(true, false, s) == 2);
+    CHECK(s[0].role == BLE_ROLE_KNEIL && !s[0].on);
+    CHECK(s[1].role == BLE_ROLE_CENTRAL && s[1].on);
+
+    /* entering KNEIL: the sensor central off first, then KNEIL on */
+    CHECK(ble_roles_plan(false, true, s) == 2);
+    CHECK(s[0].role == BLE_ROLE_CENTRAL && !s[0].on);
+    CHECK(s[1].role == BLE_ROLE_KNEIL && s[1].on);
+
+    /* Phone + sensor: both on (no off call in between) */
+    CHECK(ble_roles_plan(true, true, s) == 2);
+    CHECK(s[0].role == BLE_ROLE_CENTRAL && s[0].on);
+    CHECK(s[1].role == BLE_ROLE_KNEIL && s[1].on);
+
+    /* Bluetooth off: both off */
+    CHECK(ble_roles_plan(false, false, s) == 2);
+    CHECK(s[0].role == BLE_ROLE_CENTRAL && !s[0].on);
+    CHECK(s[1].role == BLE_ROLE_KNEIL && !s[1].on);
+
+    /* in every combination, no "on" step comes before an "off" step */
+    for(int m = 0; m < 4; m++)
+    {
+        const bool central = (m & 1) != 0;
+        const bool kneil   = (m & 2) != 0;
+        const int  n = ble_roles_plan(central, kneil, s);
+        bool seen_on = false;
+
+        for(int i = 0; i < n; i++)
+        {
+            if(s[i].on)
+            {
+                seen_on = true;
+            }
+            else
+            {
+                CHECK(!seen_on);
+            }
+        }
+    }
+}
+
 int main(void)
 {
     test_decode_live_v2();
@@ -334,6 +449,8 @@ int main(void)
     test_uuids();
     test_cccd_ranges();
     test_dsc_disc_args();
+    test_ctrl_queue();
+    test_role_plan();
 
     printf("kneil tests: %d checks, %d failed\n", checks, fails);
     printf("KNEIL TEST: %s\n", fails ? "FAILED" : "PASS");

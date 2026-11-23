@@ -8,8 +8,10 @@ idf_component_register(
         rtc_service.c
         data_logger.c
         ble_service.c
+        ble_roles.c
         ble_central.c
         kneil_state.c
+        kneil_ctrl_queue.c
         kneil_central.c
         haptics.c
         housekeeping.c
