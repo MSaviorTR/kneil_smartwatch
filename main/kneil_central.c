@@ -11,6 +11,7 @@
 #include "host/util/util.h"
 
 #include "kneil_central.h"
+#include "kneil_ctrl_queue.h"
 #include "kneil_proto.h"
 #include "kneil_state.h"
 
@@ -84,6 +85,11 @@ static esp_timer_handle_t rescan_timer;
 static SemaphoreHandle_t lock;
 static kneil_model_t     model;
 
+/* CONTROL writes: the UI task queues, the NimBLE task writes one at a time. All fields below are
+   protected by `lock`; the pure queue logic lives in kneil_ctrl_queue.c and is host-tested. */
+static kneil_ctrl_queue_t ctrl_queue;
+static uint32_t           ctrl_gen;      /* bumped when a connection is lost: stale completions are ignored */
+
 static int  gap_event(struct ble_gap_event *event, void *arg);
 static void start_scan(void);
 
@@ -94,6 +100,35 @@ static void set_link(kneil_link_t link, const char *name, int rssi, uint16_t mtu
     xSemaphoreTake(lock, portMAX_DELAY);
     kneil_model_set_link(&model, link, name, rssi, mtu);
     xSemaphoreGive(lock);
+}
+
+/* Same, with the device the scan chose; dev_name/dev_rssi are written under the lock (scan window) and
+   read here under the lock too. */
+static void set_link_dev(kneil_link_t link, uint16_t mtu)
+{
+    char name[KNEIL_NAME_MAX];
+    int  rssi;
+
+    xSemaphoreTake(lock, portMAX_DELAY);
+    memcpy(name, dev_name, sizeof(name));
+    rssi = dev_rssi;
+    kneil_model_set_link(&model, link, name, rssi, mtu);
+    xSemaphoreGive(lock);
+}
+
+static bool conn_is(uint16_t c)
+{
+    bool same;
+
+    xSemaphoreTake(lock, portMAX_DELAY);
+    same = (conn == c);
+    xSemaphoreGive(lock);
+    return same;
+}
+
+static bool conn_is_none(void)
+{
+    return conn_is(BLE_HS_CONN_HANDLE_NONE);
 }
 
 static void on_live_decoded(const kneil_live_t *p)
@@ -132,10 +167,16 @@ static void emit_line(const char *line, int n)
 
 static void drop_connection(const char *why)
 {
-    if(conn != BLE_HS_CONN_HANDLE_NONE)
+    uint16_t c;
+
+    xSemaphoreTake(lock, portMAX_DELAY);
+    c = conn;
+    xSemaphoreGive(lock);
+
+    if(c != BLE_HS_CONN_HANDLE_NONE)
     {
         ESP_LOGW(TAG, "disconnecting: %s", why);
-        ble_gap_terminate(conn, BLE_ERR_REM_USER_CONN_TERM);
+        ble_gap_terminate(c, BLE_ERR_REM_USER_CONN_TERM);
     }
 }
 
@@ -222,6 +263,14 @@ static int on_sub_dsc(uint16_t c, const struct ble_gatt_error *err, uint16_t chr
 
     if(cccd == 0)
     {
+        if(sub_phase == 0)
+        {
+            /* LIVE is the reason for this connection: no CCCD means no stream (F5) */
+            ESP_LOGW(TAG, "no LIVE CCCD (value %u)", (unsigned)sub_value);
+            drop_connection("no LIVE CCCD");
+            return 0;
+        }
+
         /* no notify descriptor: ignore this optional characteristic and go on */
         ESP_LOGW(TAG, "no CCCD for %s (value %u)", sub_name ? sub_name : "?", (unsigned)sub_value);
         sub_phase++;
@@ -262,6 +311,13 @@ static int on_cccd_written(uint16_t c, const struct ble_gatt_error *err, struct 
 
 static void subscribe_next(void)
 {
+    /* The mode may have been switched off while MTU exchange or a CCCD write was in flight (F7): do not
+       continue subscribing and do not report `connected` on a connection that is being dropped. */
+    if(!active || conn_is_none())
+    {
+        return;
+    }
+
     /* live is required; info and summary only when the device has them */
     while(sub_phase < 3)
     {
@@ -285,6 +341,13 @@ static void subscribe_next(void)
         if(sub_last < sub_first)
         {
             /* the range would be empty: no descriptors of its own */
+            if(sub_phase == 0)
+            {
+                ESP_LOGW(TAG, "no LIVE CCCD (value %u)", (unsigned)sub_value);
+                drop_connection("no LIVE CCCD");
+                return;
+            }
+
             ESP_LOGW(TAG, "no CCCD for %s (value %u)", sub_name, (unsigned)sub_value);
             sub_phase++;
             continue;
@@ -298,9 +361,14 @@ static void subscribe_next(void)
         return;
     }
 
+    if(!active || conn_is_none())
+    {
+        return;         /* switched off while the last subscription completed */
+    }
+
     const uint16_t mtu = (uint16_t)ble_att_mtu(conn);
 
-    set_link(KNEIL_LINK_CONNECTED, dev_name, dev_rssi, mtu);
+    set_link_dev(KNEIL_LINK_CONNECTED, mtu);
     ESP_LOGI(TAG, "subscriptions done, MTU %u", (unsigned)mtu);
 }
 
@@ -411,7 +479,13 @@ static int on_chrs(uint16_t c, const struct ble_gatt_error *err, const struct bl
         if(ble_uuid_cmp(&chr->uuid.u, &LIVE_UUID.u) == 0)          { h_live = chr->val_handle;    if(slot < MAX_CHRS) idx_live = slot; }
         else if(ble_uuid_cmp(&chr->uuid.u, &INFO_UUID.u) == 0)     { h_info = chr->val_handle;    if(slot < MAX_CHRS) idx_info = slot; }
         else if(ble_uuid_cmp(&chr->uuid.u, &SUMMARY_UUID.u) == 0)  { h_summary = chr->val_handle; if(slot < MAX_CHRS) idx_summary = slot; }
-        else if(ble_uuid_cmp(&chr->uuid.u, &CONTROL_UUID.u) == 0)  h_ctrl = chr->val_handle;
+        else if(ble_uuid_cmp(&chr->uuid.u, &CONTROL_UUID.u) == 0)
+        {
+            /* read by the UI task through kneil_central_send_ctrl() */
+            xSemaphoreTake(lock, portMAX_DELAY);
+            h_ctrl = chr->val_handle;
+            xSemaphoreGive(lock);
+        }
 
         return 0;
     }
@@ -463,12 +537,20 @@ static int on_svc(uint16_t c, const struct ble_gatt_error *err, const struct ble
 
 static int on_mtu(uint16_t c, const struct ble_gatt_error *err, uint16_t mtu, void *arg)
 {
-    (void)c; (void)arg;
+    (void)arg;
 
-    if(err->status == 0)
+    if(err->status != 0)
     {
-        ESP_LOGI(TAG, "MTU %u", mtu);
-        set_link(KNEIL_LINK_CONNECTED, dev_name, dev_rssi, mtu);
+        ESP_LOGW(TAG, "MTU exchange failed: %d (subscriptions continue at the default MTU)", err->status);
+        return 0;
+    }
+
+    ESP_LOGI(TAG, "MTU %u", mtu);
+
+    /* the mode may have been switched off while the exchange was in flight (F7) */
+    if(active && conn_is(c))
+    {
+        set_link_dev(KNEIL_LINK_CONNECTED, mtu);
     }
 
     return 0;
@@ -491,13 +573,34 @@ static bool is_kneil(const struct ble_hs_adv_fields *f)
     return f->name != NULL && f->name_len >= plen && memcmp(f->name, KNEIL_NAME_PREFIX, plen) == 0;
 }
 
-static void remember(const struct ble_hs_adv_fields *f, const ble_addr_t *addr, int8_t rssi)
+static void remember_name(char *dst, size_t size, const struct ble_hs_adv_fields *f)
+{
+    if(f->name == NULL)
+    {
+        return;
+    }
+
+    size_t n = f->name_len < size - 1 ? f->name_len : size - 1;
+
+    memcpy(dst, f->name, n);
+    dst[n] = '\0';
+}
+
+/* Called from the NimBLE task; cand[]/n_cand are read by scan_window_cb() on the esp_timer task. */
+static void remember_locked(const struct ble_hs_adv_fields *f, const ble_addr_t *addr, int8_t rssi)
 {
     for(int i = 0; i < n_cand; i++)
     {
         if(memcmp(&cand[i].addr, addr, sizeof(*addr)) == 0)
         {
             cand[i].rssi = rssi;
+
+            /* the scan response can arrive first, without the name: fill it in from a later packet (F8) */
+            if(cand[i].name[0] == '\0')
+            {
+                remember_name(cand[i].name, sizeof(cand[i].name), f);
+            }
+
             return;
         }
     }
@@ -510,50 +613,76 @@ static void remember(const struct ble_hs_adv_fields *f, const ble_addr_t *addr, 
     cand[n_cand].addr = *addr;
     cand[n_cand].rssi = rssi;
     cand[n_cand].name[0] = '\0';
-
-    if(f->name != NULL)
-    {
-        size_t n = f->name_len < sizeof(cand[n_cand].name) - 1 ? f->name_len : sizeof(cand[n_cand].name) - 1;
-        memcpy(cand[n_cand].name, f->name, n);
-        cand[n_cand].name[n] = '\0';
-    }
-
+    remember_name(cand[n_cand].name, sizeof(cand[n_cand].name), f);
     n_cand++;
 }
 
-/* Scan window over: connect to the strongest KNEIL device seen. */
+static void remember(const struct ble_hs_adv_fields *f, const ble_addr_t *addr, int8_t rssi)
+{
+    xSemaphoreTake(lock, portMAX_DELAY);
+    remember_locked(f, addr, rssi);
+    xSemaphoreGive(lock);
+}
+
+/* Scan window over: connect to the strongest KNEIL device seen. Runs on the esp_timer task and may race
+   with a mode change and with gap_event(), so it checks the lifecycle first and copies the candidate out
+   under the lock before connecting (F4). */
 static void scan_window_cb(void *arg)
 {
     (void)arg;
+
+    if(!active || !synced || !conn_is_none())
+    {
+        return;
+    }
 
     if(ble_gap_disc_active())
     {
         ble_gap_disc_cancel();
     }
 
-    if(n_cand == 0)
+    struct candidate chosen;
+    bool have_candidate = false;
+
+    xSemaphoreTake(lock, portMAX_DELAY);
+
+    if(n_cand > 0)
+    {
+        int best = 0;
+
+        for(int i = 1; i < n_cand; i++)
+        {
+            if(cand[i].rssi > cand[best].rssi)
+            {
+                best = i;
+            }
+        }
+
+        chosen = cand[best];
+        memcpy(dev_name, chosen.name, sizeof(dev_name));
+        dev_rssi = chosen.rssi;
+        have_candidate = true;
+    }
+
+    xSemaphoreGive(lock);
+
+    if(!have_candidate)
     {
         rescan_later();
         return;
     }
 
-    int best = 0;
-
-    for(int i = 1; i < n_cand; i++)
+    /* the mode may have been switched off between the check above and the scan cancel */
+    if(!active || !synced)
     {
-        if(cand[i].rssi > cand[best].rssi)
-        {
-            best = i;
-        }
+        return;
     }
 
-    dev_rssi = cand[best].rssi;
-    memcpy(dev_name, cand[best].name, sizeof(dev_name));
-    set_link(KNEIL_LINK_CONNECTING, dev_name, dev_rssi, 0);
-    ESP_LOGI(TAG, "connecting to %s (%d dBm)", cand[best].name[0] ? cand[best].name : "KNEIL", cand[best].rssi);
+    set_link(KNEIL_LINK_CONNECTING, chosen.name, chosen.rssi, 0);
+    ESP_LOGI(TAG, "connecting to %s (%d dBm)", chosen.name[0] ? chosen.name : "KNEIL", chosen.rssi);
 
     /* the connect call has to run outside the timer callback's stack constraints: NimBLE queues it */
-    if(ble_gap_connect(own_addr_type, &cand[best].addr, CONNECT_TIMEOUT_MS, NULL, gap_event, NULL) != 0)
+    if(ble_gap_connect(own_addr_type, &chosen.addr, CONNECT_TIMEOUT_MS, NULL, gap_event, NULL) != 0)
     {
         ESP_LOGW(TAG, "connect failed to start");
         rescan_later();
@@ -562,12 +691,15 @@ static void scan_window_cb(void *arg)
 
 static void start_scan(void)
 {
-    if(!active || !synced || conn != BLE_HS_CONN_HANDLE_NONE || ble_gap_disc_active())
+    if(!active || !synced || !conn_is_none() || ble_gap_disc_active())
     {
         return;
     }
 
+    xSemaphoreTake(lock, portMAX_DELAY);
     n_cand = 0;
+    xSemaphoreGive(lock);
+
     set_link(KNEIL_LINK_SCANNING, "", 0, 0);
 
     struct ble_gap_disc_params p = {
@@ -609,6 +741,7 @@ static int gap_event(struct ble_gap_event *event, void *arg)
         }
 
         case BLE_GAP_EVENT_CONNECT:
+        {
             if(event->connect.status != 0)
             {
                 ESP_LOGW(TAG, "connection failed: %d", event->connect.status);
@@ -616,21 +749,33 @@ static int gap_event(struct ble_gap_event *event, void *arg)
                 return 0;
             }
 
+            xSemaphoreTake(lock, portMAX_DELAY);
             conn = event->connect.conn_handle;
-            svc_start = svc_end = 0;
             h_live = h_info = h_summary = h_ctrl = 0;
+            kneil_ctrl_queue_reset(&ctrl_queue);   /* a new connection never inherits queued CONTROL bytes */
+            xSemaphoreGive(lock);
+
+            svc_start = svc_end = 0;
             n_chrs = 0;
             idx_live = idx_info = idx_summary = -1;
             first_live_logged = false;
-            set_link(KNEIL_LINK_CONNECTED, dev_name, dev_rssi, 0);
 
             if(!active)
             {
+                /* the mode was switched off while connecting: never show `connected` (F7) */
+                set_link_dev(KNEIL_LINK_OFF, 0);
                 drop_connection("KNEIL mode switched off");
                 return 0;
             }
 
-            ble_gattc_exchange_mtu(conn, on_mtu, NULL);
+            set_link_dev(KNEIL_LINK_CONNECTED, 0);
+
+            int rc = ble_gattc_exchange_mtu(conn, on_mtu, NULL);
+
+            if(rc != 0)
+            {
+                ESP_LOGW(TAG, "MTU exchange failed to start: %d", rc);
+            }
 
             if(ble_gattc_disc_svc_by_uuid(conn, &SVC_UUID.u, on_svc, NULL) != 0)
             {
@@ -638,14 +783,21 @@ static int gap_event(struct ble_gap_event *event, void *arg)
             }
 
             return 0;
+        }
 
         case BLE_GAP_EVENT_DISCONNECT:
             ESP_LOGI(TAG, "KNEIL device disconnected (reason 0x%x)", event->disconnect.reason);
+
+            xSemaphoreTake(lock, portMAX_DELAY);
             conn = BLE_HS_CONN_HANDLE_NONE;
             h_live = h_info = h_summary = h_ctrl = 0;
+            kneil_ctrl_queue_reset(&ctrl_queue);   /* no queued CONTROL byte may reach the next connection */
+            ctrl_gen++;                            /* a completion still in flight is stale now */
+            xSemaphoreGive(lock);
+
             n_chrs = 0;
             idx_live = idx_info = idx_summary = -1;
-            set_link(active ? KNEIL_LINK_LOST : KNEIL_LINK_OFF, dev_name, dev_rssi, 0);
+            set_link_dev(active ? KNEIL_LINK_LOST : KNEIL_LINK_OFF, 0);
             rescan_later();
             return 0;
 
@@ -658,7 +810,7 @@ static int gap_event(struct ble_gap_event *event, void *arg)
             return 0;
 
         case BLE_GAP_EVENT_DISC_COMPLETE:
-            if(conn == BLE_HS_CONN_HANDLE_NONE)
+            if(conn_is_none())
             {
                 rescan_later();
             }
@@ -672,16 +824,27 @@ static int gap_event(struct ble_gap_event *event, void *arg)
 
 /* ------------------------------------------------------------------ control writes */
 
-static uint8_t  ctrl_q[4];
-static int      ctrl_head, ctrl_count;
-static bool     ctrl_busy;
-
 static void ctrl_kick(void);
 
 static int on_ctrl_written(uint16_t c, const struct ble_gatt_error *err, struct ble_gatt_attr *attr, void *arg)
 {
-    (void)c; (void)attr; (void)arg;
-    ctrl_busy = false;
+    (void)c; (void)attr;
+
+    const uint32_t gen = (uint32_t)(uintptr_t)arg;
+    bool current;
+
+    xSemaphoreTake(lock, portMAX_DELAY);
+    current = (gen == ctrl_gen);
+    if(current)
+    {
+        kneil_ctrl_queue_done(&ctrl_queue);
+    }
+    xSemaphoreGive(lock);
+
+    if(!current)
+    {
+        return 0;      /* completion of a write from a connection that is already gone */
+    }
 
     if(err->status != 0)
     {
@@ -694,38 +857,51 @@ static int on_ctrl_written(uint16_t c, const struct ble_gatt_error *err, struct 
 
 static void ctrl_kick(void)
 {
-    if(ctrl_busy || ctrl_count == 0 || conn == BLE_HS_CONN_HANDLE_NONE || h_ctrl == 0)
+    uint8_t  byte;
+    uint16_t c, h;
+    uint32_t gen;
+
+    xSemaphoreTake(lock, portMAX_DELAY);
+
+    if(conn == BLE_HS_CONN_HANDLE_NONE || h_ctrl == 0 || !kneil_ctrl_queue_take(&ctrl_queue, &byte))
     {
+        xSemaphoreGive(lock);
         return;
     }
 
-    static uint8_t byte;
+    /* busy is already set (take() does it): set before the write, or a fast completion would leave it
+       stuck true and every CONTROL button dead until reboot (F2) */
+    c   = conn;
+    h   = h_ctrl;
+    gen = ++ctrl_gen;
 
-    byte = ctrl_q[ctrl_head];
-    ctrl_head = (ctrl_head + 1) % (int)sizeof(ctrl_q);
-    ctrl_count--;
+    xSemaphoreGive(lock);
 
-    if(ble_gattc_write_flat(conn, h_ctrl, &byte, 1, on_ctrl_written, NULL) == 0)
+    if(ble_gattc_write_flat(c, h, &byte, 1, on_ctrl_written, (void *)(uintptr_t)gen) != 0)
     {
-        ctrl_busy = true;
+        ESP_LOGW(TAG, "CONTROL write failed to start");
+
+        xSemaphoreTake(lock, portMAX_DELAY);
+        kneil_ctrl_queue_done(&ctrl_queue);
+        kneil_ctrl_queue_requeue(&ctrl_queue, byte);   /* keep the byte for the next attempt */
+        xSemaphoreGive(lock);
     }
 }
 
 bool kneil_central_send_ctrl(uint8_t ctrl)
 {
-    if(conn == BLE_HS_CONN_HANDLE_NONE || h_ctrl == 0)
+    bool accepted;
+
+    xSemaphoreTake(lock, portMAX_DELAY);
+    accepted = (conn != BLE_HS_CONN_HANDLE_NONE && h_ctrl != 0) && kneil_ctrl_queue_push(&ctrl_queue, ctrl);
+    xSemaphoreGive(lock);
+
+    if(accepted)
     {
-        return false;
+        ctrl_kick();
     }
 
-    if(ctrl_count < (int)sizeof(ctrl_q))
-    {
-        ctrl_q[(ctrl_head + ctrl_count) % (int)sizeof(ctrl_q)] = ctrl;
-        ctrl_count++;
-    }
-
-    ctrl_kick();
-    return true;
+    return accepted;
 }
 
 /* ------------------------------------------------------------------ public */
@@ -764,12 +940,24 @@ void kneil_central_on_sync(uint8_t addr_type)
 void kneil_central_on_reset(void)
 {
     synced = false;
-    conn = BLE_HS_CONN_HANDLE_NONE;
 
-    if(lock != NULL)
+    if(lock == NULL)
     {
-        set_link(active ? KNEIL_LINK_LOST : KNEIL_LINK_OFF, dev_name, dev_rssi, 0);
+        conn = BLE_HS_CONN_HANDLE_NONE;
+        return;
     }
+
+    xSemaphoreTake(lock, portMAX_DELAY);
+    conn = BLE_HS_CONN_HANDLE_NONE;
+    h_live = h_info = h_summary = h_ctrl = 0;
+    kneil_ctrl_queue_reset(&ctrl_queue);   /* the host reset drops the connection and every CONTROL byte */
+    ctrl_gen++;
+    xSemaphoreGive(lock);
+
+    n_chrs = 0;
+    idx_live = idx_info = idx_summary = -1;
+
+    set_link_dev(active ? KNEIL_LINK_LOST : KNEIL_LINK_OFF, 0);
 }
 
 void kneil_central_set_active(bool on)
@@ -791,8 +979,25 @@ void kneil_central_set_active(bool on)
             ble_gap_disc_cancel();
         }
 
+        /* a 10 s connect in progress would otherwise keep the controller busy for the next mode (F4) */
+        if(ble_gap_conn_active())
+        {
+            int rc = ble_gap_conn_cancel();
+
+            if(rc != 0)
+            {
+                ESP_LOGW(TAG, "connect cancel failed: %d", rc);
+            }
+        }
+
         drop_connection("KNEIL mode switched off");
-        set_link(KNEIL_LINK_OFF, dev_name, dev_rssi, 0);
+
+        xSemaphoreTake(lock, portMAX_DELAY);
+        kneil_ctrl_queue_reset(&ctrl_queue);
+        ctrl_gen++;
+        xSemaphoreGive(lock);
+
+        set_link_dev(KNEIL_LINK_OFF, 0);
         return;
     }
 
