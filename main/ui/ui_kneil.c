@@ -110,6 +110,8 @@ static void reset_day_cb(lv_event_t *e)
 
 void ui_kneil_create(lv_obj_t *tile)
 {
+    last_refresh_us = 0;      /* first refresh fills summary / info (F9: page rebuilt within 2 s) */
+
     ui_page(UI_PAGE_FACE, LV_SYMBOL_BLUETOOTH, "KNEIL", UI_COL_BLE);
 
     /* link */
@@ -180,6 +182,13 @@ void ui_kneil_create(lv_obj_t *tile)
     ui_button(tile, "Reset day", reset_day_cb, NULL);
 }
 
+/* Page 1 is leaving KNEIL mode: the confirmation dialog lives on lv_layer_top(), so lv_obj_clean(tile)
+   does not remove it and it would stay over the watch face (F9). */
+void ui_kneil_destroy(void)
+{
+    confirm_close();
+}
+
 /* ------------------------------------------------------------------ */
 
 void ui_kneil_refresh(void)
@@ -189,7 +198,7 @@ void ui_kneil_refresh(void)
     kneil_central_snapshot(&m);
 
     /* link line */
-    char buf[64];
+    char buf[96];       /* longest: "RSSI -100 dBm   MTU 247   v2 (8 classes)   packets 4294967295   gaps 4294967295" */
 
     if(m.link == KNEIL_LINK_CONNECTED)
     {

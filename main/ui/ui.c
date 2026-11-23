@@ -140,6 +140,11 @@ static void build_page1(bool kneil)
        first call the tile is empty, exactly as upstream leaves it in ui_init() */
     if(had_page)
     {
+        if(built_kneil)
+        {
+            ui_kneil_destroy();      /* the reset dialog is on lv_layer_top(), not in the tile */
+        }
+
         ui_face_destroy();
         lv_obj_clean(tile);
     }
