@@ -340,6 +340,12 @@ static void refresh_cb(lv_timer_t *t)
     sync_page1();          /* the mode may have changed since the last tick */
     ui_alert_update();
 
+    if(scr == ui_scr_therapy)
+    {
+        ui_therapy_refresh();
+        return;
+    }
+
     if(scr != ui_scr_main)
     {
         return;
@@ -431,6 +437,7 @@ void ui_init(void)
     ui_diag_create(ui_tiles[UI_PAGE_DIAG]);
     ui_settings_create(ui_tiles[UI_PAGE_SETTINGS]);
     ui_time_create();
+    ui_therapy_create();
     ui_alert_create();
 
     refresh_page1();   /* first paint, at the point upstream refreshed the face */

@@ -13,6 +13,11 @@ idf_component_register(
         kneil_state.c
         kneil_ctrl_queue.c
         kneil_central.c
+        therapy_angle.c
+        therapy_session.c
+        therapy.c
+        therapy_audio.c
+        therapy_log.c
         haptics.c
         housekeeping.c
         usb_console.c
@@ -26,7 +31,9 @@ idf_component_register(
         ui/ui_calib.c
         ui/ui_settings.c
         ui/ui_kneil.c
-    INCLUDE_DIRS . ui)
+        ui/ui_therapy.c
+    INCLUDE_DIRS . ui
+    EMBED_FILES "therapy_voice.bin")
 
 # Vendor workarounds kept from the Waveshare example.
 idf_build_get_property(build_components BUILD_COMPONENTS)

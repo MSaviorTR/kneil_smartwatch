@@ -33,9 +33,15 @@ void kneil_central_set_active(bool active);
 /* Copy of the page model (thread-safe). */
 void kneil_central_snapshot(kneil_model_t *out);
 
-/* Ask the device: KNEIL_CTRL_SELFTEST (0x12), KNEIL_CTRL_SUMMARY (0x13), KNEIL_CTRL_RESET (0x14).
+/* Ask the device: KNEIL_CTRL_SELFTEST (0x12), KNEIL_CTRL_SUMMARY (0x13), KNEIL_CTRL_RESET (0x14),
+   KNEIL_CTRL_RAW_START (0x10), KNEIL_CTRL_RAW_STOP (0x11).
    Returns false if there is no link. */
 bool kneil_central_send_ctrl(uint8_t ctrl);
+
+/* RAW notifications (50 Hz int16 x/y/z, n samples per packet) for the therapy module. The callback runs on
+   the NimBLE host task; it must not block. Copy the packet, do not keep the pointer. */
+typedef void (*kneil_raw_listener_t)(const kneil_raw_t *raw);
+void kneil_central_set_raw_listener(kneil_raw_listener_t cb);
 
 /* Console mode: print every received LIVE / INFO / SUMMARY as the protocol's text lines (L, I, D). */
 void kneil_central_set_lines(bool on);

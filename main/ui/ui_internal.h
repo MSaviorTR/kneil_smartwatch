@@ -40,6 +40,7 @@ typedef enum
 
 extern lv_obj_t *ui_scr_main;     /* holds the tileview */
 extern lv_obj_t *ui_scr_time;     /* set-time screen, opened from Settings */
+extern lv_obj_t *ui_scr_therapy;  /* home therapy screen, opened from the KNEIL page */
 extern lv_obj_t *ui_tv;
 extern lv_obj_t *ui_tiles[UI_PAGE_COUNT];
 
@@ -83,6 +84,10 @@ void ui_diag_refresh(void);
 void ui_settings_create(lv_obj_t *tile);
 void ui_settings_refresh(void);
 void ui_time_create(void);
+void ui_therapy_create(void);
+void ui_therapy_open(void);
+void ui_therapy_close(void);
+void ui_therapy_refresh(void);
 
 /* Full-screen K+ alert on the top layer, checked on every refresh. */
 void ui_alert_create(void);

@@ -56,6 +56,12 @@ static void selftest_cb(lv_event_t *e)
     kneil_central_send_ctrl(KNEIL_CTRL_SELFTEST);
 }
 
+static void therapy_cb(lv_event_t *e)
+{
+    (void)e;
+    ui_therapy_open();
+}
+
 static void confirm_close(void)
 {
     if(confirm_box != NULL)
@@ -177,6 +183,7 @@ void ui_kneil_create(lv_obj_t *tile)
     lv_obj_set_width(info_lbl, LV_PCT(100));
 
     /* actions */
+    ui_button(tile, LV_SYMBOL_PLAY "  Therapy", therapy_cb, NULL);
     ui_button(tile, "Summary now", summary_now_cb, NULL);
     ui_button(tile, "Self-test", selftest_cb, NULL);
     ui_button(tile, "Reset day", reset_day_cb, NULL);

@@ -22,6 +22,7 @@ static const char *TAG = "kneil-central";
    that byte array; no UUID byte is written by hand here any more. */
 static ble_uuid128_t SVC_UUID;
 static ble_uuid128_t LIVE_UUID;
+static ble_uuid128_t RAW_UUID;
 static ble_uuid128_t CONTROL_UUID;
 static ble_uuid128_t INFO_UUID;
 static ble_uuid128_t SUMMARY_UUID;
@@ -52,6 +53,7 @@ static void init_uuids(void)
 
     uuid_init(&SVC_UUID, KNEIL_UUID_SERVICE);
     uuid_init(&LIVE_UUID, KNEIL_UUID_LIVE);
+    uuid_init(&RAW_UUID, KNEIL_UUID_RAW);
     uuid_init(&CONTROL_UUID, KNEIL_UUID_CONTROL);
     uuid_init(&INFO_UUID, KNEIL_UUID_INFO);
     uuid_init(&SUMMARY_UUID, KNEIL_UUID_SUMMARY);
@@ -72,7 +74,8 @@ static uint8_t       own_addr_type;
 
 static uint16_t conn = BLE_HS_CONN_HANDLE_NONE;
 static uint16_t svc_start, svc_end;
-static uint16_t h_live, h_info, h_summary, h_ctrl;
+static uint16_t h_live, h_raw, h_info, h_summary, h_ctrl;
+static kneil_raw_listener_t raw_listener;
 
 static struct candidate cand[MAX_CANDIDATES];
 static int n_cand;
@@ -208,6 +211,7 @@ static uint16_t chr_def[MAX_CHRS];
 static uint16_t chr_val[MAX_CHRS];
 static int      n_chrs;
 static int      idx_live = -1;
+static int      idx_raw = -1;
 static int      idx_info = -1;
 static int      idx_summary = -1;
 
@@ -224,7 +228,7 @@ static uint16_t    sub_next_def;
 static uint16_t    sub_start;        /* argument for ble_gattc_disc_all_dscs(): the value handle */
 static uint16_t    sub_first, sub_last;
 static uint16_t    sub_cccd;
-static int         sub_phase;        /* 0 live, 1 info, 2 summary */
+static int         sub_phase;        /* 0 live, 1 raw, 2 info, 3 summary */
 
 /* One line per subscription, after the CCCD write succeeded (the owner's log then shows three handles). */
 static void log_subscribed(void)
@@ -318,10 +322,11 @@ static void subscribe_next(void)
         return;
     }
 
-    /* live is required; info and summary only when the device has them */
-    while(sub_phase < 3)
+    /* live is required; raw is for the therapy page, info and summary when the device has them */
+    while(sub_phase < 4)
     {
-        const int idx = (sub_phase == 0) ? idx_live : (sub_phase == 1) ? idx_info : idx_summary;
+        const int idx = (sub_phase == 0) ? idx_live : (sub_phase == 1) ? idx_raw :
+                        (sub_phase == 2) ? idx_info : idx_summary;
 
         if(idx < 0)
         {
@@ -329,7 +334,8 @@ static void subscribe_next(void)
             continue;
         }
 
-        sub_name  = (sub_phase == 0) ? "LIVE" : (sub_phase == 1) ? "INFO" : "SUMMARY";
+        sub_name  = (sub_phase == 0) ? "LIVE" : (sub_phase == 1) ? "RAW" :
+                    (sub_phase == 2) ? "INFO" : "SUMMARY";
         sub_value = chr_val[idx];
         sub_next_def = (idx + 1 < n_chrs) ? chr_def[idx + 1] : 0;
 
@@ -416,6 +422,22 @@ static void handle_notify(uint16_t attr, struct os_mbuf *om)
             ESP_LOGW(TAG, "bad LIVE packet (%u bytes)", (unsigned)len);
         }
     }
+    else if(attr == h_raw)
+    {
+        kneil_raw_t r;
+
+        if(kneil_raw_decode(buf, len, &r) == 0)
+        {
+            if(raw_listener != NULL)
+            {
+                raw_listener(&r);
+            }
+        }
+        else
+        {
+            ESP_LOGW(TAG, "bad RAW packet (%u bytes)", (unsigned)len);
+        }
+    }
     else if(attr == h_summary)
     {
         kneil_summary_t s;
@@ -477,6 +499,7 @@ static int on_chrs(uint16_t c, const struct ble_gatt_error *err, const struct bl
 
         /* the index lets the subscription search only this characteristic's descriptor range */
         if(ble_uuid_cmp(&chr->uuid.u, &LIVE_UUID.u) == 0)          { h_live = chr->val_handle;    if(slot < MAX_CHRS) idx_live = slot; }
+        else if(ble_uuid_cmp(&chr->uuid.u, &RAW_UUID.u) == 0)      { h_raw = chr->val_handle;     if(slot < MAX_CHRS) idx_raw = slot; }
         else if(ble_uuid_cmp(&chr->uuid.u, &INFO_UUID.u) == 0)     { h_info = chr->val_handle;    if(slot < MAX_CHRS) idx_info = slot; }
         else if(ble_uuid_cmp(&chr->uuid.u, &SUMMARY_UUID.u) == 0)  { h_summary = chr->val_handle; if(slot < MAX_CHRS) idx_summary = slot; }
         else if(ble_uuid_cmp(&chr->uuid.u, &CONTROL_UUID.u) == 0)
@@ -496,8 +519,8 @@ static int on_chrs(uint16_t c, const struct ble_gatt_error *err, const struct bl
         return 0;
     }
 
-    ESP_LOGI(TAG, "%d characteristics: LIVE %u, INFO %u, SUMMARY %u, CONTROL %u", n_chrs,
-             (unsigned)h_live, (unsigned)h_info, (unsigned)h_summary, (unsigned)h_ctrl);
+    ESP_LOGI(TAG, "%d characteristics: LIVE %u, RAW %u, INFO %u, SUMMARY %u, CONTROL %u", n_chrs,
+             (unsigned)h_live, (unsigned)h_raw, (unsigned)h_info, (unsigned)h_summary, (unsigned)h_ctrl);
 
     if(h_live == 0)
     {
@@ -751,7 +774,7 @@ static int gap_event(struct ble_gap_event *event, void *arg)
 
             xSemaphoreTake(lock, portMAX_DELAY);
             conn = event->connect.conn_handle;
-            h_live = h_info = h_summary = h_ctrl = 0;
+            h_live = h_raw = h_info = h_summary = h_ctrl = 0;
             kneil_ctrl_queue_reset(&ctrl_queue);   /* a new connection never inherits queued CONTROL bytes */
             xSemaphoreGive(lock);
 
@@ -790,7 +813,7 @@ static int gap_event(struct ble_gap_event *event, void *arg)
 
             xSemaphoreTake(lock, portMAX_DELAY);
             conn = BLE_HS_CONN_HANDLE_NONE;
-            h_live = h_info = h_summary = h_ctrl = 0;
+            h_live = h_raw = h_info = h_summary = h_ctrl = 0;
             kneil_ctrl_queue_reset(&ctrl_queue);   /* no queued CONTROL byte may reach the next connection */
             ctrl_gen++;                            /* a completion still in flight is stale now */
             xSemaphoreGive(lock);
@@ -949,13 +972,13 @@ void kneil_central_on_reset(void)
 
     xSemaphoreTake(lock, portMAX_DELAY);
     conn = BLE_HS_CONN_HANDLE_NONE;
-    h_live = h_info = h_summary = h_ctrl = 0;
+    h_live = h_raw = h_info = h_summary = h_ctrl = 0;
     kneil_ctrl_queue_reset(&ctrl_queue);   /* the host reset drops the connection and every CONTROL byte */
     ctrl_gen++;
     xSemaphoreGive(lock);
 
     n_chrs = 0;
-    idx_live = idx_info = idx_summary = -1;
+    idx_live = idx_raw = idx_info = idx_summary = -1;
 
     set_link_dev(active ? KNEIL_LINK_LOST : KNEIL_LINK_OFF, 0);
 }
@@ -995,6 +1018,7 @@ void kneil_central_set_active(bool on)
         xSemaphoreTake(lock, portMAX_DELAY);
         kneil_ctrl_queue_reset(&ctrl_queue);
         ctrl_gen++;
+        h_raw = 0;
         xSemaphoreGive(lock);
 
         set_link_dev(KNEIL_LINK_OFF, 0);
@@ -1024,4 +1048,9 @@ void kneil_central_set_lines(bool on)
 bool kneil_central_lines(void)
 {
     return lines_on;
+}
+
+void kneil_central_set_raw_listener(kneil_raw_listener_t cb)
+{
+    raw_listener = cb;
 }

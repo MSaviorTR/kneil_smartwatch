@@ -21,9 +21,9 @@ if [ ! -f build/liblvgl.a ]; then
     ar rcs build/liblvgl.a build/obj/*.o
 fi
 
-cc $CFLAGS sim_main.c ../../main/calibration.c ../../main/kneil_state.c ../../components/kneil_proto/kneil_proto.c ../../main/ui/*.c build/liblvgl.a -lm -o build/ui_sim
+cc $CFLAGS sim_main.c therapy_stub.c ../../main/calibration.c ../../main/kneil_state.c ../../components/kneil_proto/kneil_proto.c ../../main/ui/*.c build/liblvgl.a -lm -o build/ui_sim
 
-for s in live alert demo uncal nodata kneil; do
+for s in live alert demo uncal nodata kneil therapy; do
     echo "scenario: $s"
     ./build/ui_sim "$s" out
 done
