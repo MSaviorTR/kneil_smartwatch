@@ -65,6 +65,8 @@ static void stop_raw_locked(void)
 
         raw_on = false;
     }
+
+    kneil_central_set_raw_owner(false);
 }
 
 static void play_clip(therapy_clip_t clip)
@@ -146,19 +148,30 @@ static void lose_locked(const char *reason)
 
 static void finish_calibration_locked(void)
 {
+    const therapy_cal_mode_t mode = cal_mode;
+
     stop_raw_locked();
     state = THERAPY_STATE_IDLE;
 
-    if(angle.cal_ok)
-    {
-        ESP_LOGI(TAG, "calibration ok: theta_cal %.1f, scale %.3f", (double)angle.theta_cal,
-                 (double)angle.scale);
-        play_clip(THERAPY_CLIP_CAL_DONE);
-    }
-    else
+    if(!angle.cal_ok)
     {
         ESP_LOGW(TAG, "calibration failed (%d/%d valid samples)", angle.cal_valid, angle.cal_n);
         play_clip(THERAPY_CLIP_CALIBRATE);
+        return;
+    }
+
+    ESP_LOGI(TAG, "calibration ok: theta_cal %.1f, orientation %s, straight reach %.1f deg",
+             (double)angle.theta_cal, angle.orientation_ok ? "ok" : "NOT AS EXPECTED",
+             (double)angle.straight_extension_deg);
+
+    if(mode == THERAPY_CAL_STRAIGHT)
+    {
+        therapy_log_straight(angle.straight_extension_deg, angle.orientation_ok);
+        play_clip(angle.orientation_ok ? THERAPY_CLIP_CAL_DONE : THERAPY_CLIP_ORIENTATION_BAD);
+    }
+    else
+    {
+        play_clip(THERAPY_CLIP_CAL_DONE);
     }
 }
 
@@ -318,7 +331,7 @@ bool therapy_start(therapy_exercise_t exercise)
 
     xSemaphoreTake(lock, portMAX_DELAY);
 
-    if(!angle.calibrated || !link_connected_locked() ||
+    if(!angle.calibrated || !angle.orientation_ok || !link_connected_locked() ||
        state == THERAPY_STATE_RUNNING || state == THERAPY_STATE_CALIBRATING)
     {
         xSemaphoreGive(lock);
@@ -335,6 +348,7 @@ bool therapy_start(therapy_exercise_t exercise)
     ev = therapy_session_begin(&session, exercise, now_ms());
     state = THERAPY_STATE_RUNNING;
     raw_on = true;
+    kneil_central_set_raw_owner(true);
     have_seq = false;
     have_raw = false;
     last_raw_ms = now_ms();
@@ -379,6 +393,7 @@ bool therapy_resume(void)
         therapy_session_resume(&session, now_ms());
         state = THERAPY_STATE_RUNNING;
         raw_on = true;
+        kneil_central_set_raw_owner(true);
         have_seq = false;
         have_raw = false;
         last_raw_ms = now_ms();
@@ -425,6 +440,7 @@ bool therapy_calibrate_start(therapy_cal_mode_t mode)
             cal_mode = mode;
             state = THERAPY_STATE_CALIBRATING;
             raw_on = true;
+            kneil_central_set_raw_owner(true);
             have_seq = false;
             have_raw = false;
             last_raw_ms = now_ms();
@@ -434,7 +450,6 @@ bool therapy_calibrate_start(therapy_cal_mode_t mode)
     }
 
     xSemaphoreGive(lock);
-    (void)cal_mode;
     return ok;
 }
 
@@ -498,12 +513,15 @@ void therapy_snapshot(therapy_snapshot_t *out)
     out->angle_valid = angle.valid;
     out->calibrated = angle.calibrated;
     out->straight_checked = angle.straight_checked;
+    out->orientation_ok = angle.orientation_ok;
+    out->straight_extension_deg = angle.straight_extension_deg;
     out->cal_progress_pct = (angle.cal_active && angle.cal_n > 0)
                             ? (int)(100.0f * (float)angle.cal_n /
                                     (float)(THERAPY_CAL_SECONDS * THERAPY_FS_HZ))
                             : (angle.cal_done ? 100 : 0);
     out->link_ok = (m.link == KNEIL_LINK_CONNECTED);
     out->audio_ready = therapy_audio_ready();
+    out->log_ready = therapy_log_available();
     out->last_full = p.last_full;
     out->last_partial = p.last_partial;
     out->last_peak = p.last_peak;

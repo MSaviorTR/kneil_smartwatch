@@ -50,10 +50,13 @@ typedef struct
 
     bool               calibrated;
     bool               straight_checked;
+    bool               orientation_ok;      /* straight check: false = sensor orientation not as expected */
+    float              straight_extension_deg;
     int                cal_progress_pct;
 
     bool               link_ok;
     bool               audio_ready;
+    bool               log_ready;
 
     bool               last_full;
     bool               last_partial;

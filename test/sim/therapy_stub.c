@@ -20,8 +20,11 @@ void therapy_sim_init(void)
     fake.set = 1;
     fake.rep = 1;
     fake.calibrated = true;
+    fake.orientation_ok = true;
     fake.link_ok = true;
     fake.angle_valid = true;
+    fake.audio_ready = true;
+    fake.log_ready = true;
 }
 
 esp_err_t therapy_init(void) { therapy_sim_init(); return ESP_OK; }

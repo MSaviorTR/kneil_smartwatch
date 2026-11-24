@@ -13,6 +13,7 @@ void therapy_angle_init(therapy_angle_t *a)
 {
     *a = (therapy_angle_t){0};
     a->scale = 1.0f;
+    a->orientation_ok = true;
 }
 
 void therapy_angle_reset_filter(therapy_angle_t *a)
@@ -25,10 +26,11 @@ void therapy_angle_reset_filter(therapy_angle_t *a)
 
 void therapy_angle_set_calibration(therapy_angle_t *a, float theta_cal, float scale)
 {
+    (void)scale;
     a->theta_cal = theta_cal;
-    a->scale = (scale > 0.1f) ? scale : 1.0f;
+    a->scale = 1.0f;
     a->calibrated = true;
-    a->straight_checked = fabsf(a->scale - 1.0f) > 1e-4f;
+    a->orientation_ok = true;
 }
 
 bool therapy_angle_calibrated(const therapy_angle_t *a)
@@ -119,19 +121,22 @@ bool therapy_angle_cal_add(therapy_angle_t *a, int16_t x_mg, int16_t y_mg, int16
         a->scale = 1.0f;
         a->calibrated = true;
         a->straight_checked = false;
+        a->orientation_checked = false;
+        a->orientation_ok = true;
+        a->straight_extension_deg = 0.0f;
         a->cal_ok = true;
     }
     else if(a->cal_mode == THERAPY_CAL_STRAIGHT && a->calibrated)
     {
         const float travel = mean - a->theta_cal;
 
-        /* 90 deg of shank rotation should be 90 deg of knee extension; accept a plausible range only. */
-        if(travel >= 45.0f && travel <= 135.0f)
-        {
-            a->scale = 90.0f / travel;
-            a->straight_checked = true;
-            a->cal_ok = true;
-        }
+        /* No scale correction: an accelerometer tilt is absolute. The sign tells us whether the documented
+           device frame is right; the reached angle is the patient's extension (10-20 deg lag is common). */
+        a->straight_checked = true;
+        a->orientation_checked = true;
+        a->orientation_ok = (travel > THERAPY_STRAIGHT_MIN_TRAVEL_DEG);
+        a->straight_extension_deg = 90.0f - travel;
+        a->cal_ok = true;
     }
 
     return true;

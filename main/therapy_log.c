@@ -113,6 +113,24 @@ void therapy_log_rep(const char *exercise, int set, int rep, float peak_deg, flo
     enqueue(line);
 }
 
+void therapy_log_straight(float extension_deg, bool orientation_ok)
+{
+    char when[24];
+    char line[LOG_LINE_MAX];
+
+    stamp(when, sizeof(when));
+    snprintf(line, sizeof(line), "%s,straight_check,-,0,0,%.1f,0,0,orientation %s",
+             when, (double)extension_deg, orientation_ok ? "ok" : "NOT AS EXPECTED");
+    enqueue(line);
+}
+
+bool therapy_log_available(void)
+{
+    const char *root = data_logger_root();
+
+    return root != NULL && root[0] != '\0';
+}
+
 void therapy_log_session(const char *exercise, int sets_done, int full, int partial,
                          float best_extension_deg, float best_flexion_deg, const char *reason)
 {

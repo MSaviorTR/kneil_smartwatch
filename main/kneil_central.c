@@ -12,6 +12,7 @@
 
 #include "kneil_central.h"
 #include "kneil_ctrl_queue.h"
+#include "kneil_raw_policy.h"
 #include "kneil_proto.h"
 #include "kneil_state.h"
 
@@ -92,6 +93,7 @@ static kneil_model_t     model;
    protected by `lock`; the pure queue logic lives in kneil_ctrl_queue.c and is host-tested. */
 static kneil_ctrl_queue_t ctrl_queue;
 static uint32_t           ctrl_gen;      /* bumped when a connection is lost: stale completions are ignored */
+static bool               raw_owner_active;  /* a therapy session/calibration owns the RAW stream */
 
 static int  gap_event(struct ble_gap_event *event, void *arg);
 static void start_scan(void);
@@ -376,6 +378,13 @@ static void subscribe_next(void)
 
     set_link_dev(KNEIL_LINK_CONNECTED, mtu);
     ESP_LOGI(TAG, "subscriptions done, MTU %u", (unsigned)mtu);
+
+    /* The implant keeps its RAW flag over a link loss. Subscribe RAW on every KNEIL connection, then stop it
+       once if no therapy session or calibration is running (T1_fix F2). */
+    if(kneil_raw_stop_on_connect(!conn_is_none(), raw_owner_active))
+    {
+        kneil_central_send_ctrl(KNEIL_CTRL_RAW_STOP);
+    }
 }
 
 /* ------------------------------------------------------------------ notifications */
@@ -780,7 +789,7 @@ static int gap_event(struct ble_gap_event *event, void *arg)
 
             svc_start = svc_end = 0;
             n_chrs = 0;
-            idx_live = idx_info = idx_summary = -1;
+            idx_live = idx_raw = idx_info = idx_summary = -1;
             first_live_logged = false;
 
             if(!active)
@@ -819,7 +828,7 @@ static int gap_event(struct ble_gap_event *event, void *arg)
             xSemaphoreGive(lock);
 
             n_chrs = 0;
-            idx_live = idx_info = idx_summary = -1;
+            idx_live = idx_raw = idx_info = idx_summary = -1;
             set_link_dev(active ? KNEIL_LINK_LOST : KNEIL_LINK_OFF, 0);
             rescan_later();
             return 0;
@@ -1053,4 +1062,9 @@ bool kneil_central_lines(void)
 void kneil_central_set_raw_listener(kneil_raw_listener_t cb)
 {
     raw_listener = cb;
+}
+
+void kneil_central_set_raw_owner(bool active)
+{
+    raw_owner_active = active;
 }

@@ -7,10 +7,11 @@ straighten,Straighten your knee slowly.
 hold,Hold.
 lower,Lower slowly.
 bend,Bend your knee. Slide your foot back.
-slow,Slowly. Move smoothly.
+slow,Too fast. Move slowly and smoothly.
 set_done,Set complete. Rest.
 session_done,Session complete. Well done.
-connection_lost,Connection lost. Stop and check the implant.
+connection_lost,Connection lost. Rest for a moment; the watch will reconnect.
 pain,Stop if you feel sharp pain.
 rep,Rep {n} of {m}.
+orientation_bad,Sensor orientation not as expected. Check the watch.
 beep,[beep]

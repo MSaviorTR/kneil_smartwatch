@@ -5,6 +5,7 @@
 
 #include "therapy_angle.h"
 #include "therapy_session.h"
+#include "kneil_raw_policy.h"
 
 static int checks;
 static int fails;
@@ -83,7 +84,29 @@ static void test_angle_calibration(void)
     therapy_angle_cal_begin(&b, THERAPY_CAL_STRAIGHT);
     for(int i = 0; i < THERAPY_CAL_SECONDS * THERAPY_FS_HZ; i++) sample_at(&b, 90.0f);
     CHECK(b.cal_done && b.cal_ok && b.straight_checked);
+    CHECK(b.orientation_ok);
     CHECK(fabsf(b.scale - 1.0f) < 0.02f);
+
+    /* a patient who reaches only 20 deg is shown 20 deg, not rescaled to 0 */
+    therapy_angle_t c;
+    therapy_angle_init(&c);
+    therapy_angle_cal_begin(&c, THERAPY_CAL_SIT);
+    for(int i = 0; i < THERAPY_CAL_SECONDS * THERAPY_FS_HZ; i++) sample_at(&c, 0.0f);
+    therapy_angle_cal_begin(&c, THERAPY_CAL_STRAIGHT);
+    for(int i = 0; i < THERAPY_CAL_SECONDS * THERAPY_FS_HZ; i++) sample_at(&c, 70.0f);
+    CHECK(c.cal_done && c.cal_ok && c.straight_checked && c.orientation_ok);
+    CHECK(fabsf(c.straight_extension_deg - 20.0f) < 2.0f);
+    CHECK(fabsf(c.phi_deg - 20.0f) < 2.0f);
+
+    /* wrong sign: the straight check flags the orientation and must refuse a session */
+    therapy_angle_t d;
+    therapy_angle_init(&d);
+    therapy_angle_cal_begin(&d, THERAPY_CAL_SIT);
+    for(int i = 0; i < THERAPY_CAL_SECONDS * THERAPY_FS_HZ; i++) sample_at(&d, 0.0f);
+    therapy_angle_cal_begin(&d, THERAPY_CAL_STRAIGHT);
+    for(int i = 0; i < THERAPY_CAL_SECONDS * THERAPY_FS_HZ; i++) sample_at(&d, -30.0f);
+    CHECK(d.cal_done && d.straight_checked);
+    CHECK(!d.orientation_ok);
 
     /* a failed sitting calibration keeps the old one */
     const float old_cal = a.theta_cal;
@@ -274,8 +297,7 @@ static void test_session_bend_and_slow(void)
 }
 
 static void test_session_sets(void)
-{
-    therapy_session_t s;
+{    therapy_session_t s;
     uint32_t t = 0;
     unsigned ev = therapy_session_begin(&s, THERAPY_EX_EXTENSION, t);
     int set_done = 0;
@@ -304,6 +326,13 @@ static void test_session_sets(void)
     CHECK(s.reps_total == THERAPY_SETS * THERAPY_REPS);
 }
 
+static void test_raw_policy(void)
+{
+    CHECK(kneil_raw_stop_on_connect(true, false));    /* connected, idle -> stop once */
+    CHECK(!kneil_raw_stop_on_connect(true, true));    /* session/calibration owns RAW */
+    CHECK(!kneil_raw_stop_on_connect(false, false));  /* not connected */
+}
+
 int main(void)
 {
     test_angle_basic();
@@ -317,6 +346,7 @@ int main(void)
     test_session_gap_and_lost();
     test_session_bend_and_slow();
     test_session_sets();
+    test_raw_policy();
 
     printf("therapy tests: %d checks, %d failed\n", checks, fails);
     printf("THERAPY TEST: %s\n", fails ? "FAILED" : "PASS");

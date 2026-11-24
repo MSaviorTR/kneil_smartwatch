@@ -494,7 +494,10 @@ int main(int argc, char **argv)
         t.phi = 90.0f;
         t.angle_valid = true;
         t.calibrated = true;
+        t.orientation_ok = true;
         t.link_ok = true;
+        t.audio_ready = true;
+        t.log_ready = true;
         t.best_extension = 90.0f;
         t.best_flexion = 90.0f;
         therapy_sim_set(&t);
@@ -528,6 +531,21 @@ int main(int argc, char **argv)
         therapy_sim_set(&t);
         run_ms(600);
         save(out, "14_therapy_set_complete");
+
+        t.state = THERAPY_STATE_IDLE;
+        t.phase = THERAPY_PHASE_IDLE;
+        t.audio_ready = false;
+        t.log_ready = false;
+        t.straight_checked = true;
+        t.straight_extension_deg = 18.0f;
+        t.reps_done = 0;
+        t.rep = 1;
+        t.full_total = 0;
+        t.partial_total = 0;
+        t.phi = 90.0f;
+        therapy_sim_set(&t);
+        run_ms(600);
+        save(out, "15_therapy_warnings");
     }
 
     return 0;

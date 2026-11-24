@@ -12,6 +12,7 @@ idf_component_register(
         ble_central.c
         kneil_state.c
         kneil_ctrl_queue.c
+        kneil_raw_policy.c
         kneil_central.c
         therapy_angle.c
         therapy_session.c

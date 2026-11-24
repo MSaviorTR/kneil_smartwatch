@@ -28,7 +28,7 @@ cc $CFLAGS -std=gnu11 -Istubs -I../sim/stubs \
    test_app_state.c ../../main/app_state.c ../../main/calibration.c -lm -o build/app_state_tests
 
 # home therapy: pure angle/calibration and rep state machine
-cc $CFLAGS test_therapy.c ../../main/therapy_angle.c ../../main/therapy_session.c -lm -o build/therapy_tests
+cc $CFLAGS test_therapy.c ../../main/therapy_angle.c ../../main/therapy_session.c ../../main/kneil_raw_policy.c -lm -o build/therapy_tests
 
 ./build/host_tests
 ./build/app_state_tests

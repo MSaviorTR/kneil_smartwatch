@@ -43,6 +43,10 @@ bool kneil_central_send_ctrl(uint8_t ctrl);
 typedef void (*kneil_raw_listener_t)(const kneil_raw_t *raw);
 void kneil_central_set_raw_listener(kneil_raw_listener_t cb);
 
+/* True while a therapy session or calibration owns RAW. When false, a new connection queues CONTROL 0x11
+   once after the subscriptions (the implant keeps its RAW flag over a link loss). */
+void kneil_central_set_raw_owner(bool active);
+
 /* Console mode: print every received LIVE / INFO / SUMMARY as the protocol's text lines (L, I, D). */
 void kneil_central_set_lines(bool on);
 bool kneil_central_lines(void);

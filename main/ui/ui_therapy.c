@@ -17,6 +17,7 @@ static lv_obj_t *target_lbl;
 static lv_obj_t *rep_lbl;
 static lv_obj_t *counts_lbl;
 static lv_obj_t *status_lbl;
+static lv_obj_t *warn_lbl;
 static lv_obj_t *arc;
 static lv_obj_t *start_btn;
 static lv_obj_t *start_lbl;
@@ -170,11 +171,18 @@ void ui_therapy_create(void)
     target_lbl = ui_label(angle_card, "target --", &lv_font_montserrat_16, UI_COL_DIM);
     rep_lbl = ui_label(angle_card, "set 1/3   rep 1/10", &lv_font_montserrat_18, UI_COL_TEXT);
     counts_lbl = ui_label(angle_card, "full 0   partial 0", &lv_font_montserrat_14, UI_COL_DIM);
+    lv_label_set_long_mode(counts_lbl, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(counts_lbl, LV_PCT(100));
 
     status_lbl = ui_label(page, "Calibrate first.", &lv_font_montserrat_16, UI_COL_TEXT);
     lv_label_set_long_mode(status_lbl, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(status_lbl, LV_PCT(100));
     lv_obj_set_style_text_align(status_lbl, LV_TEXT_ALIGN_CENTER, 0);
+
+    warn_lbl = ui_label(page, "", &lv_font_montserrat_14, UI_COL_WARN);
+    lv_label_set_long_mode(warn_lbl, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(warn_lbl, LV_PCT(100));
+    lv_obj_set_style_text_align(warn_lbl, LV_TEXT_ALIGN_CENTER, 0);
 
     lv_obj_t *ex_row = ui_row(page);
     ext_btn = small_button(ex_row, "Extension", exercise_cb);
@@ -221,11 +229,16 @@ static const char *phase_text(const therapy_snapshot_t *s, char *buf, size_t siz
         case THERAPY_STATE_PAUSED:
             return "Paused.";
         case THERAPY_STATE_LOST:
-            return "Connection lost. Stop and check the implant.";
+            return "Connection lost. Rest for a moment; the watch will reconnect.";
         case THERAPY_STATE_DONE:
             return "Session complete. Well done.";
         default:
             break;
+    }
+
+    if(s->straight_checked && !s->orientation_ok)
+    {
+        return "Sensor orientation not as expected. Check the watch.";
     }
 
     switch(s->phase)
@@ -284,8 +297,17 @@ void ui_therapy_refresh(void)
              (s.reps_done < THERAPY_REPS) ? s.reps_done + 1 : THERAPY_REPS, THERAPY_REPS);
     lv_label_set_text(rep_lbl, buf);
 
-    snprintf(buf, sizeof(buf), "full %d   partial %d   best ext %.0f / flex %.0f",
-             s.full_total, s.partial_total, (double)s.best_extension, (double)s.best_flexion);
+    if(s.straight_checked)
+    {
+        snprintf(buf, sizeof(buf), "full %d partial %d  best ext %.0f / flex %.0f  straight %.0f",
+                 s.full_total, s.partial_total, (double)s.best_extension, (double)s.best_flexion,
+                 (double)s.straight_extension_deg);
+    }
+    else
+    {
+        snprintf(buf, sizeof(buf), "full %d   partial %d   best ext %.0f / flex %.0f",
+                 s.full_total, s.partial_total, (double)s.best_extension, (double)s.best_flexion);
+    }
     lv_label_set_text(counts_lbl, buf);
 
     lv_arc_set_value(arc, (int)((s.phi < 0) ? 0 : (s.phi > 140 ? 140 : s.phi)));
@@ -299,13 +321,43 @@ void ui_therapy_refresh(void)
 
     lv_label_set_text(status_lbl, txt);
 
-    if(s.state == THERAPY_STATE_CALIBRATING)
+    const bool can_start = (s.state == THERAPY_STATE_RUNNING) || (s.state == THERAPY_STATE_PAUSED) ||
+                           (s.calibrated && s.orientation_ok && s.link_ok &&
+                            s.state != THERAPY_STATE_CALIBRATING);
+
+    if(can_start)
     {
-        lv_obj_add_state(start_btn, LV_STATE_DISABLED);
+        lv_obj_remove_state(start_btn, LV_STATE_DISABLED);
     }
     else
     {
-        lv_obj_remove_state(start_btn, LV_STATE_DISABLED);
+        lv_obj_add_state(start_btn, LV_STATE_DISABLED);
+    }
+
+    char warn[96] = "";
+
+    if(!s.audio_ready && !s.log_ready)
+    {
+        snprintf(warn, sizeof(warn), "Speaker off: vibration cues. Log not saved.");
+    }
+    else if(!s.audio_ready)
+    {
+        snprintf(warn, sizeof(warn), "Speaker off: vibration cues.");
+    }
+    else if(!s.log_ready)
+    {
+        snprintf(warn, sizeof(warn), "Log not saved.");
+    }
+
+    if(warn[0])
+    {
+        lv_label_set_text(warn_lbl, warn);
+        lv_obj_remove_flag(warn_lbl, LV_OBJ_FLAG_HIDDEN);
+    }
+    else
+    {
+        lv_label_set_text(warn_lbl, "");
+        lv_obj_add_flag(warn_lbl, LV_OBJ_FLAG_HIDDEN);
     }
 
     if(s.state == THERAPY_STATE_RUNNING || s.state == THERAPY_STATE_CALIBRATING)

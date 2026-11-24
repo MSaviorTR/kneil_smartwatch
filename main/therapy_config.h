@@ -21,6 +21,7 @@
 #define THERAPY_TARGET_TOL_DEG     5.0f    /* TBC: "at target" window */
 #define THERAPY_REST_TOL_DEG       12.0f   /* TBC: back near the start */
 #define THERAPY_MOVE_START_DEG     8.0f    /* TBC: leave rest */
+#define THERAPY_STRAIGHT_MIN_TRAVEL_DEG 10.0f  /* TBC: smallest believable straightening travel for the sign check */
 #define THERAPY_HOLD_SECONDS       5       /* TBC */
 #define THERAPY_REPS               10      /* TBC: per set */
 #define THERAPY_SETS               3       /* TBC */

@@ -45,9 +45,12 @@ typedef struct
     bool  valid;                /* mag_ok && y_ok */
 
     float theta_cal;            /* theta at the seated calibration pose */
-    float scale;                /* deg of phi per deg of theta; 1 unless a straight check ran */
+    float scale;                /* always 1: an accelerometer tilt has no scale error */
     bool  calibrated;
-    bool  straight_checked;
+    bool  straight_checked;     /* the optional straight check has run */
+    bool  orientation_checked;  /* ... and its sign was evaluated */
+    bool  orientation_ok;       /* straightening lowered phi (the documented device frame) */
+    float straight_extension_deg; /* phi reached in the straight check (20 = 20 deg of extension lag) */
 
     /* Calibration collection */
     bool              cal_active;
