@@ -41,7 +41,9 @@ typedef struct
     int                partial_total;
 
     float              phi;
+    float              rest;
     float              target;
+    float              hold_goal;        /* seconds for this exercise */
     float              peak;
     float              hold_s;
     float              best_extension;   /* lowest phi this session */
@@ -57,6 +59,7 @@ typedef struct
     bool               link_ok;
     bool               audio_ready;
     bool               log_ready;
+    therapy_cal_mode_t cal_mode;           /* the collection in progress (when state is CALIBRATING) */
 
     bool               last_full;
     bool               last_partial;
@@ -67,7 +70,8 @@ typedef struct
 
 esp_err_t therapy_init(void);
 
-/* Start a session. Sends 0x10. Fails when not calibrated or not connected. */
+/* Start a session (seated extension, seated bend or standing knee curl). Sends 0x10. Fails when not
+   calibrated or not connected. */
 bool therapy_start(therapy_exercise_t exercise);
 
 /* Stop and send 0x11, pause/resume, or run one calibration collection. */

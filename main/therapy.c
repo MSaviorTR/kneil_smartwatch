@@ -42,7 +42,12 @@ static uint32_t now_ms(void)
 
 static const char *exercise_text(therapy_exercise_t ex)
 {
-    return (ex == THERAPY_EX_EXTENSION) ? "extension" : "bend";
+    switch(ex)
+    {
+        case THERAPY_EX_EXTENSION: return "extension";
+        case THERAPY_EX_BEND:      return "bend";
+        default:                   return "standing_curl";
+    }
 }
 
 static bool link_connected_locked(void)
@@ -97,7 +102,8 @@ static void log_summary_locked(const char *reason)
     therapy_log_session(exercise_text(session.exercise), sets_done,
                         session.full_total, session.partial_total,
                         (best_extension < 900.0f) ? best_extension : 0.0f,
-                        (best_flexion > -900.0f) ? best_flexion : 0.0f, reason);
+                        (best_flexion > -900.0f) ? best_flexion : 0.0f,
+                        session.exercise == THERAPY_EX_CURL, reason);
     summary_logged = true;
 }
 
@@ -105,13 +111,14 @@ static void emit_events_locked(unsigned ev)
 {
     if(ev & THERAPY_EV_PROMPT_EXT) play_clip(THERAPY_CLIP_STRAIGHTEN);
     if(ev & THERAPY_EV_PROMPT_BEND) play_clip(THERAPY_CLIP_BEND);
+    if(ev & THERAPY_EV_PROMPT_CURL) play_clip(THERAPY_CLIP_CURL_BEND);
     if(ev & THERAPY_EV_HOLD) play_clip(THERAPY_CLIP_HOLD);
     if(ev & THERAPY_EV_HOLD_TICK) play_clip(THERAPY_CLIP_BEEP);
     if(ev & THERAPY_EV_SLOW) play_clip(THERAPY_CLIP_SLOW);
 
     if(ev & THERAPY_EV_RETURN)
     {
-        play_clip(session.exercise == THERAPY_EX_EXTENSION ? THERAPY_CLIP_LOWER : THERAPY_CLIP_STRAIGHTEN);
+        play_clip(session.exercise == THERAPY_EX_BEND ? THERAPY_CLIP_STRAIGHTEN : THERAPY_CLIP_LOWER);
     }
 
     if(ev & (THERAPY_EV_REP_FULL | THERAPY_EV_REP_PARTIAL))
@@ -345,6 +352,8 @@ bool therapy_start(therapy_exercise_t exercise)
     }
 
     session = (therapy_session_t){0};
+    therapy_angle_set_mode(&angle, exercise == THERAPY_EX_CURL);
+    therapy_angle_reset_filter(&angle);
     ev = therapy_session_begin(&session, exercise, now_ms());
     state = THERAPY_STATE_RUNNING;
     raw_on = true;
@@ -357,7 +366,7 @@ bool therapy_start(therapy_exercise_t exercise)
     summary_logged = false;
     ok = true;
 
-    play_clip(THERAPY_CLIP_SETUP);
+    play_clip((exercise == THERAPY_EX_CURL) ? THERAPY_CLIP_CURL_SETUP : THERAPY_CLIP_SETUP);
     play_clip(THERAPY_CLIP_PAIN);
     emit_events_locked(ev);
     xSemaphoreGive(lock);
@@ -394,6 +403,7 @@ bool therapy_resume(void)
         state = THERAPY_STATE_RUNNING;
         raw_on = true;
         kneil_central_set_raw_owner(true);
+        therapy_angle_reset_filter(&angle);
         have_seq = false;
         have_raw = false;
         last_raw_ms = now_ms();
@@ -444,7 +454,20 @@ bool therapy_calibrate_start(therapy_cal_mode_t mode)
             have_seq = false;
             have_raw = false;
             last_raw_ms = now_ms();
-            play_clip(mode == THERAPY_CAL_SIT ? THERAPY_CLIP_CALIBRATE : THERAPY_CLIP_CALIBRATE_STRAIGHT);
+
+            if(mode == THERAPY_CAL_STAND)
+            {
+                play_clip(THERAPY_CLIP_CALIBRATE_STAND);
+            }
+            else if(mode == THERAPY_CAL_SIT)
+            {
+                play_clip(THERAPY_CLIP_CALIBRATE);
+            }
+            else
+            {
+                play_clip(THERAPY_CLIP_CALIBRATE_STRAIGHT);
+            }
+
             ok = true;
         }
     }
@@ -504,8 +527,10 @@ void therapy_snapshot(therapy_snapshot_t *out)
     out->reps_total = p.reps_total;
     out->full_total = p.full_total;
     out->partial_total = p.partial_total;
-    out->phi = angle.phi_deg;
+    out->phi = angle.phi_display;
+    out->rest = p.rest;
     out->target = p.target;
+    out->hold_goal = p.hold_goal;
     out->peak = p.peak;
     out->hold_s = p.hold_s;
     out->best_extension = (best_extension < 900.0f) ? best_extension : 0.0f;
@@ -522,6 +547,7 @@ void therapy_snapshot(therapy_snapshot_t *out)
     out->link_ok = (m.link == KNEIL_LINK_CONNECTED);
     out->audio_ready = therapy_audio_ready();
     out->log_ready = therapy_log_available();
+    out->cal_mode = cal_mode;
     out->last_full = p.last_full;
     out->last_partial = p.last_partial;
     out->last_peak = p.last_peak;

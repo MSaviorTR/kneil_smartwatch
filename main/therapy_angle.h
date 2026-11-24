@@ -10,42 +10,46 @@ extern "C" {
 #endif
 
 /*
- * Seated knee angle from the implant accelerometer. Pure C, no ESP-IDF, host-tested.
+ * Seated and standing knee angle from the implant accelerometer. Pure C, no ESP-IDF, host-tested.
  *
- * Device frame: x anterior, y subject's left, z superior. Sitting with the foot flat and the knee at a
- * right angle gives about (0, 0, +1 g): theta = atan2(a_x, a_z) = 0. Straightening the knee rotates the
- * shank forward; theta grows towards +90 deg. Seated knee flexion is therefore
+ * Device frame: x anterior, y subject's left, z superior. theta = atan2(a_x, a_z), relative to a vertical
+ * shank calibration (theta_cal). The samples are low-passed at 6 Hz; the angle is trusted only when the raw
+ * acceleration magnitude is within 0.05 g of 1 g and the lateral component is small.
  *
- *     phi = 90 - scale * (theta - theta_cal)
+ * Seated (foot flat, knee at a right angle = 90): phi = 90 - (theta - theta_cal); straightening lowers phi.
+ * Standing (thigh vertical; heel lifted behind = shank tilts backward): phi = -(theta - theta_cal);
+ * the heel behind gives a negative theta and a positive flexion. The angle is only right while the thigh is
+ * vertical; the screen says so.
  *
- * so straightening lowers phi. The samples are low-passed at about 2 Hz. The angle is trusted only when
- * the acceleration magnitude is near 1 g and the lateral component is small.
- *
- * Calibration has two steps: sitting (sets theta_cal) and an optional leg-straight check that verifies the sign
- * and records the reached extension. There is no scale correction.
- * The second step is optional; without it scale stays 1.
+ * Calibration: a 3 s vertical-shank pose (seated foot flat or stand tall), then an optional seated
+ * leg-straight check that verifies the sign and records the reached extension. There is no scale correction.
  */
 
 typedef enum
 {
     THERAPY_CAL_NONE = 0,
     THERAPY_CAL_SIT,
+    THERAPY_CAL_STAND,
     THERAPY_CAL_STRAIGHT,
 } therapy_cal_mode_t;
 
 typedef struct
 {
-    float lp_x, lp_y, lp_z;     /* low-passed acceleration, g */
+    float lp_x, lp_y, lp_z;     /* low-passed acceleration, g (6 Hz) */
     bool  primed;
 
     float theta_deg;            /* atan2(a_x, a_z), degrees */
-    float phi_deg;              /* seated knee flexion, degrees (90 = right angle) */
-    float magnitude_g;
+    float phi_deg;              /* seated or standing knee flexion, degrees */
+    float phi_display;          /* display-only 2 Hz smoothing of phi (rep logic uses phi_deg) */
+    bool  display_primed;
+    float magnitude_g;          /* low-passed |a|, g (diagnostics) */
+    float raw_magnitude_g;      /* raw |a|, g: the 0.05 g gate uses this value */
     bool  mag_ok;
     bool  y_ok;
     bool  valid;                /* mag_ok && y_ok */
+    bool  standing;             /* standing formula: phi = -(theta - theta_cal) */
 
-    float theta_cal;            /* theta at the seated calibration pose */
+    float theta_cal;            /* theta at the vertical-shank calibration pose */
     float scale;                /* always 1: an accelerometer tilt has no scale error */
     bool  calibrated;
     bool  straight_checked;     /* the optional straight check has run */
@@ -65,6 +69,9 @@ typedef struct
 
 void therapy_angle_init(therapy_angle_t *a);
 
+/* Seated (false) or standing (true) formula. */
+void therapy_angle_set_mode(therapy_angle_t *a, bool standing);
+
 /* Drops the filter state (after a BLE sequence gap) but keeps the calibration. */
 void therapy_angle_reset_filter(therapy_angle_t *a);
 
@@ -73,7 +80,7 @@ void therapy_angle_set_calibration(therapy_angle_t *a, float theta_cal, float sc
 
 bool therapy_angle_calibrated(const therapy_angle_t *a);
 
-/* Start a 3 s collection. SIT sets theta_cal; STRAIGHT checks the sign and records the reached extension. */
+/* Start a 3 s collection. SIT/STAND set theta_cal; STRAIGHT checks the sign and records the extension. */
 void therapy_angle_cal_begin(therapy_angle_t *a, therapy_cal_mode_t mode);
 
 /* One RAW sample (mg). Returns true when this sample was valid (trusted angle). */

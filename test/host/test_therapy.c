@@ -130,6 +130,74 @@ static void test_angle_trust(void)
     CHECK(!a.valid && !a.y_ok);
     for(int i = 0; i < 100; i++) sample_at(&a, 0.0f);
     CHECK(a.valid && a.mag_ok && a.y_ok);
+
+    /* the 0.05 g gate is on the RAW magnitude: one kick is rejected at once, while the filtered magnitude
+       is still near 1 g (L1 A.1) */
+    therapy_angle_push(&a, 0, 0, 1100);
+    CHECK(!a.mag_ok && !a.valid);
+    CHECK(fabsf(a.magnitude_g - 1.0f) < 0.1f);
+    for(int i = 0; i < 5; i++) sample_at(&a, 0.0f);
+    CHECK(a.valid && a.mag_ok);
+}
+
+static void test_angle_standing(void)
+{
+    therapy_angle_t a;
+    const float angles[] = {0.0f, 45.0f, 90.0f, 110.0f};
+
+    /* Stand tall (shank vertical) is the same mount pose as the seated foot-flat calibration. */
+    therapy_angle_init(&a);
+    therapy_angle_set_mode(&a, true);
+    therapy_angle_cal_begin(&a, THERAPY_CAL_STAND);
+    for(int i = 0; i < THERAPY_CAL_SECONDS * THERAPY_FS_HZ; i++) sample_at(&a, 0.0f);
+    CHECK(a.cal_done && a.cal_ok && a.calibrated);
+    CHECK(fabsf(a.theta_cal) < 1.0f);
+
+    /* Heel behind -> shank tilts back -> theta negative -> standing flexion positive. */
+    for(int k = 0; k < 4; k++)
+    {
+        for(int i = 0; i < 100; i++) sample_at(&a, -angles[k]);
+        CHECK(fabsf(a.phi_deg - angles[k]) < 2.0f);
+    }
+
+    for(int i = 0; i < 100; i++) sample_at(&a, -45.0f);
+    CHECK(a.theta_deg < 0.0f);
+    CHECK(a.phi_deg > 0.0f);
+
+    /* Thigh-tilt error: with the knee unchanged, a 10 deg thigh lean shows up 1:1 in the standing angle. */
+    for(int i = 0; i < 100; i++) sample_at(&a, -10.0f);
+    CHECK(fabsf(a.phi_deg - 10.0f) < 2.0f);
+
+    /* The seated formula is still theta 0 at the calibration pose and 90 at a straight leg. */
+    therapy_angle_init(&a);
+    therapy_angle_cal_begin(&a, THERAPY_CAL_SIT);
+    for(int i = 0; i < THERAPY_CAL_SECONDS * THERAPY_FS_HZ; i++) sample_at(&a, 0.0f);
+    for(int i = 0; i < 100; i++) sample_at(&a, 90.0f);
+    CHECK(fabsf(a.phi_deg) < 2.0f);
+}
+
+static void test_angle_display(void)
+{
+    therapy_angle_t a;
+    float phi_lo = 1e9f, phi_hi = -1e9f, disp_lo = 1e9f, disp_hi = -1e9f;
+
+    therapy_angle_init(&a);
+    for(int i = 0; i < 300; i++)
+    {
+        const float theta = 45.0f + 3.0f * sinf((float)i * 0.7f);
+
+        sample_at(&a, theta);
+
+        if(i >= 60 && a.valid)                    /* both filters settled */
+        {
+            if(a.phi_deg < phi_lo) phi_lo = a.phi_deg;
+            if(a.phi_deg > phi_hi) phi_hi = a.phi_deg;
+            if(a.phi_display < disp_lo) disp_lo = a.phi_display;
+            if(a.phi_display > disp_hi) disp_hi = a.phi_display;
+        }
+    }
+
+    CHECK(disp_hi - disp_lo < phi_hi - phi_lo);
 }
 
 static void test_angle_noise(void)
@@ -296,6 +364,30 @@ static void test_session_bend_and_slow(void)
     CHECK(ev & THERAPY_EV_SLOW);
 }
 
+static void test_session_curl(void)
+{
+    therapy_session_t s;
+    therapy_progress_t p;
+    uint32_t t = 0;
+    unsigned ev = therapy_session_begin(&s, THERAPY_EX_CURL, t);
+
+    CHECK(ev & THERAPY_EV_PROMPT_CURL);
+    push_hold(&s, THERAPY_CURL_REST_DEG, 40, &t, &ev);
+    push_ramp(&s, THERAPY_CURL_REST_DEG, THERAPY_CURL_TARGET_DEG, 60, &t, &ev);
+    CHECK(ev & THERAPY_EV_HOLD);
+    push_hold(&s, THERAPY_CURL_TARGET_DEG, 3200, &t, &ev);
+    CHECK(ev & THERAPY_EV_RETURN);
+    push_ramp(&s, THERAPY_CURL_TARGET_DEG, THERAPY_CURL_REST_DEG, 60, &t, &ev);
+    CHECK(ev & THERAPY_EV_REP_FULL);
+    CHECK(!(ev & THERAPY_EV_REP_PARTIAL));
+
+    therapy_session_snapshot(&s, &p);
+    CHECK(fabsf(p.rest - THERAPY_CURL_REST_DEG) < 0.1f);
+    CHECK(fabsf(p.target - THERAPY_CURL_TARGET_DEG) < 0.1f);
+    CHECK(p.hold_goal == THERAPY_CURL_HOLD_SECONDS);
+    CHECK(p.full_total == 1 && p.partial_total == 0);
+}
+
 static void test_session_sets(void)
 {    therapy_session_t s;
     uint32_t t = 0;
@@ -338,6 +430,8 @@ int main(void)
     test_angle_basic();
     test_angle_calibration();
     test_angle_trust();
+    test_angle_standing();
+    test_angle_display();
     test_angle_noise();
     test_session_clean_rep();
     test_session_partial();
@@ -345,6 +439,7 @@ int main(void)
     test_session_jitter();
     test_session_gap_and_lost();
     test_session_bend_and_slow();
+    test_session_curl();
     test_session_sets();
     test_raw_policy();
 

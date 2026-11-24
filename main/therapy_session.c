@@ -4,25 +4,40 @@
 #include "therapy_session.h"
 
 #define SET_REST_MS ((uint32_t)THERAPY_SET_REST_SECONDS * 1000u)
-#define HOLD_MS     ((uint32_t)THERAPY_HOLD_SECONDS * 1000u)
 
 static uint32_t elapsed_ms(uint32_t since, uint32_t now)
 {
     return (uint32_t)(now - since);
 }
 
+static float rest_phi(therapy_exercise_t ex)
+{
+    return (ex == THERAPY_EX_CURL) ? THERAPY_CURL_REST_DEG : THERAPY_REST_DEG;
+}
+
 static float target_phi(therapy_exercise_t ex)
 {
-    return (ex == THERAPY_EX_EXTENSION) ? THERAPY_EXT_TARGET_DEG : THERAPY_BEND_TARGET_DEG;
+    switch(ex)
+    {
+        case THERAPY_EX_EXTENSION: return THERAPY_EXT_TARGET_DEG;
+        case THERAPY_EX_BEND:      return THERAPY_BEND_TARGET_DEG;
+        default:                   return THERAPY_CURL_TARGET_DEG;
+    }
+}
+
+static int hold_goal(therapy_exercise_t ex)
+{
+    return (ex == THERAPY_EX_CURL) ? THERAPY_CURL_HOLD_SECONDS : THERAPY_HOLD_SECONDS;
 }
 
 static float progress(const therapy_session_t *s, float phi)
 {
+    const float rest = rest_phi(s->exercise);
     const float span = (s->exercise == THERAPY_EX_EXTENSION)
-                       ? (THERAPY_REST_DEG - THERAPY_EXT_TARGET_DEG)
-                       : (THERAPY_BEND_TARGET_DEG - THERAPY_REST_DEG);
+                       ? (rest - THERAPY_EXT_TARGET_DEG)
+                       : (target_phi(s->exercise) - rest);
 
-    const float moved = (s->exercise == THERAPY_EX_EXTENSION) ? (THERAPY_REST_DEG - phi) : (phi - THERAPY_REST_DEG);
+    const float moved = (s->exercise == THERAPY_EX_EXTENSION) ? (rest - phi) : (phi - rest);
 
     if(span <= 0.0f)
     {
@@ -34,21 +49,30 @@ static float progress(const therapy_session_t *s, float phi)
 
 static bool at_target(const therapy_session_t *s, float phi)
 {
+    const float target = target_phi(s->exercise);
+
     return (s->exercise == THERAPY_EX_EXTENSION)
-           ? (phi <= THERAPY_EXT_TARGET_DEG + THERAPY_TARGET_TOL_DEG)
-           : (phi >= THERAPY_BEND_TARGET_DEG - THERAPY_TARGET_TOL_DEG);
+           ? (phi <= target + THERAPY_TARGET_TOL_DEG)
+           : (phi >= target - THERAPY_TARGET_TOL_DEG);
 }
 
 static bool near_rest(const therapy_session_t *s, float phi)
 {
+    const float rest = rest_phi(s->exercise);
+
     return (s->exercise == THERAPY_EX_EXTENSION)
-           ? (phi >= THERAPY_REST_DEG - THERAPY_REST_TOL_DEG)
-           : (phi <= THERAPY_REST_DEG + THERAPY_REST_TOL_DEG);
+           ? (phi >= rest - THERAPY_REST_TOL_DEG)
+           : (phi <= rest + THERAPY_REST_TOL_DEG);
 }
 
 static unsigned prompt_event(therapy_exercise_t ex)
 {
-    return (ex == THERAPY_EX_EXTENSION) ? THERAPY_EV_PROMPT_EXT : THERAPY_EV_PROMPT_BEND;
+    switch(ex)
+    {
+        case THERAPY_EX_EXTENSION: return THERAPY_EV_PROMPT_EXT;
+        case THERAPY_EX_BEND:      return THERAPY_EV_PROMPT_BEND;
+        default:                   return THERAPY_EV_PROMPT_CURL;
+    }
 }
 
 void therapy_session_init(therapy_session_t *s)
@@ -180,8 +204,9 @@ unsigned therapy_session_push(therapy_session_t *s, float phi, bool valid, uint3
     {
         case THERAPY_PHASE_REST:
         {
+            const float rest = rest_phi(s->exercise);
             const float moved = (s->exercise == THERAPY_EX_EXTENSION)
-                                ? (THERAPY_REST_DEG - phi) : (phi - THERAPY_REST_DEG);
+                                ? (rest - phi) : (phi - rest);
 
             if(moved >= THERAPY_MOVE_START_DEG)
             {
@@ -255,7 +280,7 @@ unsigned therapy_session_push(therapy_session_t *s, float phi, bool valid, uint3
                 ev |= THERAPY_EV_HOLD_TICK;
             }
 
-            if(held >= (float)THERAPY_HOLD_SECONDS)
+            if(held >= (float)hold_goal(s->exercise))
             {
                 s->phase = THERAPY_PHASE_RETURN;
                 s->phase_start_ms = now_ms;
@@ -269,7 +294,7 @@ unsigned therapy_session_push(therapy_session_t *s, float phi, bool valid, uint3
         {
             if(near_rest(s, phi))
             {
-                const bool full = (s->hold_s >= (float)THERAPY_HOLD_SECONDS);
+                const bool full = (s->hold_s >= (float)hold_goal(s->exercise));
                 const bool partial = !full && (progress(s, s->peak) >= THERAPY_PARTIAL_FRACTION);
 
                 ev |= record_rep(s, full, partial, s->peak, s->hold_s, now_ms);
@@ -354,7 +379,9 @@ void therapy_session_snapshot(const therapy_session_t *s, therapy_progress_t *ou
     out->full_total = s->full_total;
     out->partial_total = s->partial_total;
     out->phi = s->phi;
+    out->rest = rest_phi(s->exercise);
     out->target = target_phi(s->exercise);
+    out->hold_goal = hold_goal(s->exercise);
     out->peak = s->peak;
     out->hold_s = s->hold_s;
     out->last_peak = s->last_peak;

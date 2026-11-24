@@ -13,7 +13,7 @@ void therapy_log_init(void);
 
 void therapy_log_rep(const char *exercise, int set, int rep, float peak_deg, float hold_s, bool full);
 void therapy_log_session(const char *exercise, int sets_done, int full, int partial,
-                         float best_extension_deg, float best_flexion_deg, const char *reason);
+                         float best_extension_deg, float best_flexion_deg, bool standing, const char *reason);
 void therapy_log_straight(float extension_deg, bool orientation_ok);
 
 /* True while the data logger's root (SD or internal flash) is mounted. */

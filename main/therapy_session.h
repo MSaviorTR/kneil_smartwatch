@@ -12,9 +12,10 @@ extern "C" {
 /*
  * Knee-exercise repetition state machine. Pure C, no ESP-IDF, host-tested.
  *
- * One session is one exercise (extension or bend), THERAPY_SETS sets of THERAPY_REPS repetitions.
+ * One session is one exercise (seated extension, seated bend or standing knee curl), THERAPY_SETS sets
+ * of THERAPY_REPS repetitions.
  * A repetition is:
- *   rest -> moving -> at target (hold THERAPY_HOLD_SECONDS, beep each second) -> return -> counted.
+ *   rest -> moving -> at target (hold the exercise's hold time, beep each second) -> return -> counted.
  * A return that reaches >= 50 % of the range but not the target counts as partial, with its peak angle.
  * A target reached but the hold cut short also counts as partial (the peak is logged).
  * A gap in the RAW stream resets the current repetition; nothing is counted from incomplete data.
@@ -22,8 +23,9 @@ extern "C" {
 
 typedef enum
 {
-    THERAPY_EX_EXTENSION = 0,   /* straighten the knee: phi goes from 90 towards 10 */
-    THERAPY_EX_BEND,            /* slide the foot back: phi goes from 90 towards 110 */
+    THERAPY_EX_EXTENSION = 0,   /* seated: straighten the knee, phi goes from 90 towards 10 */
+    THERAPY_EX_BEND,            /* seated: slide the foot back, phi goes from 90 towards 110 */
+    THERAPY_EX_CURL,            /* standing: heel behind, phi goes from 10 towards 90 */
 } therapy_exercise_t;
 
 typedef enum
@@ -53,6 +55,7 @@ enum
     THERAPY_EV_SESSION_DONE= 1u << 8,
     THERAPY_EV_SLOW        = 1u << 9,
     THERAPY_EV_LOST        = 1u << 10,
+    THERAPY_EV_PROMPT_CURL = 1u << 11,
 };
 
 typedef struct
@@ -97,9 +100,11 @@ typedef struct
     int                full_total;
     int                partial_total;
     float              phi;
+    float              rest;
     float              target;
     float              peak;
     float              hold_s;
+    int                hold_goal;
     float              last_peak;
     float              last_hold_s;
     bool               last_full;

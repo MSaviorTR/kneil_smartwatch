@@ -546,6 +546,31 @@ int main(int argc, char **argv)
         therapy_sim_set(&t);
         run_ms(600);
         save(out, "15_therapy_warnings");
+
+        /* standing knee curl: third exercise, own target and 3 s hold */
+        click_button(ui_scr_therapy, "Standing");
+        run_ms(400);
+        t.state = THERAPY_STATE_RUNNING;
+        t.phase = THERAPY_PHASE_HOLD;
+        t.exercise = THERAPY_EX_CURL;
+        t.set = 1;
+        t.rep = 4;
+        t.reps_done = 3;
+        t.full_total = 3;
+        t.partial_total = 0;
+        t.phi = 88.0f;
+        t.rest = THERAPY_CURL_REST_DEG;
+        t.target = THERAPY_CURL_TARGET_DEG;
+        t.hold_goal = THERAPY_CURL_HOLD_SECONDS;
+        t.hold_s = 2.0f;
+        t.best_extension = 10.0f;
+        t.best_flexion = 88.0f;
+        t.audio_ready = true;
+        t.log_ready = true;
+        t.straight_checked = false;
+        therapy_sim_set(&t);
+        run_ms(600);
+        save(out, "16_therapy_standing");
     }
 
     return 0;
