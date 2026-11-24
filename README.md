@@ -191,6 +191,21 @@ The watch works with any generic BLE app (e.g. nRF Connect).
 There is no pairing. That's fine on the bench, but add LE Secure Connections before
 any work with people.
 
+## Home therapy mode (KNEIL)
+In KNEIL mode the KNEIL page has a **Therapy** button: guided seated knee exercises (knee extension, knee bend) for
+home physiotherapy. The watch starts the implant's RAW stream (CONTROL 0x10) only during a session or calibration and
+stops it (0x11) on pause, stop, back and at the end; on every new connection with no session it sends 0x11 once.
+- Knee angle: shank pitch `atan2(a_x, a_z)`, seated flexion `90 - (theta - theta_cal)`; calibration = 3 s sitting with
+  the foot flat (knee at a right angle). The optional straight check only checks the sensor orientation and records
+  the extension the patient reaches (no rescaling).
+- Reps: rest -> move -> hold at target (a beep each second) -> return; partial reps are logged with their peak angle.
+- Voice: English clips through the ES8311 codec and the NS4150B amplifier (board speaker connector); text in
+  `tools/voice_clips.csv`, regenerated offline with `tools/make_voice_clips.py` (Windows speech engine). Volume and mute
+  in Settings. Without a speaker the cues use the vibration motor.
+- Log: `gw_therapy.csv` (SD card, else internal flash): one line per rep and one per session.
+- **All exercise parameters in `main/therapy_config.h` are first guesses and must be confirmed by the
+  physiotherapist.** The watch guides only; it does not diagnose.
+
 ## Previewing the UI without the watch
 
 ```bash
