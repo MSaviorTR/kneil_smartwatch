@@ -1,0 +1,17 @@
+id,text
+setup,Sit on a firm chair. Place your foot flat. Keep your thigh still.
+calibrate,Sit with your foot flat, knee at a right angle. Keep still.
+calibrate_straight,Now straighten your leg and keep still.
+cal_done,Calibration done.
+straighten,Straighten your knee slowly.
+hold,Hold.
+lower,Lower slowly.
+bend,Bend your knee. Slide your foot back.
+slow,Too fast. Move slowly and smoothly.
+set_done,Set complete. Rest.
+session_done,Session complete. Well done.
+connection_lost,Connection lost. Rest for a moment; the watch will reconnect.
+pain,Stop if you feel sharp pain.
+rep,Rep {n} of {m}.
+orientation_bad,Sensor orientation not as expected. Check the watch.
+beep,[beep]

@@ -8,6 +8,7 @@
 #include "ble_service.h"
 #include "data_logger.h"
 #include "rtc_service.h"
+#include "therapy_audio.h"
 
 #include "ui_internal.h"
 
@@ -28,6 +29,8 @@ static lv_obj_t *demo_sw;
 static lv_obj_t *alert_lbl;
 static lv_obj_t *alert_slider;
 static lv_obj_t *storage_lbl;
+static lv_obj_t *therapy_mute_sw;
+static lv_obj_t *therapy_vol_lbl;
 static lv_obj_t *confirm_box;
 
 /* Time screen */
@@ -62,6 +65,11 @@ static void apply_switch(lv_event_t *e)
     else if(sw == demo_sw)
     {
         s.demo_mode = on;
+    }
+    else if(sw == therapy_mute_sw)
+    {
+        therapy_audio_set_muted(on);
+        therapy_audio_save();
     }
 
     app_state_set_settings(&s);
@@ -131,6 +139,20 @@ static void brightness_released(lv_event_t *e)
     app_state_get_settings(&s);
     s.brightness = (uint8_t)(v < BRIGHTNESS_MIN ? BRIGHTNESS_MIN : v);
     app_state_set_settings(&s);
+}
+
+static void therapy_vol_changed(lv_event_t *e)
+{
+    int v = lv_slider_get_value(lv_event_get_target_obj(e));
+
+    therapy_audio_set_volume(v);
+    lv_label_set_text_fmt(therapy_vol_lbl, "Therapy voice volume %d%%", v);
+}
+
+static void therapy_vol_released(lv_event_t *e)
+{
+    therapy_audio_set_volume(lv_slider_get_value(lv_event_get_target_obj(e)));
+    therapy_audio_save();
 }
 
 static void confirm_cb(lv_event_t *e)
@@ -232,6 +254,15 @@ void ui_settings_create(lv_obj_t *tile)
     lv_obj_t *bright = slider(page, BRIGHTNESS_MIN, 100, s.brightness);
     lv_obj_add_event_cb(bright, brightness_changed, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(bright, brightness_released, LV_EVENT_RELEASED, NULL);
+
+    therapy_vol_lbl = ui_label(page, "", &lv_font_montserrat_18, UI_COL_TEXT);
+    lv_label_set_text_fmt(therapy_vol_lbl, "Therapy voice volume %d%%", therapy_audio_volume());
+
+    lv_obj_t *tvol = slider(page, 0, 100, therapy_audio_volume());
+    lv_obj_add_event_cb(tvol, therapy_vol_changed, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(tvol, therapy_vol_released, LV_EVENT_RELEASED, NULL);
+
+    therapy_mute_sw = switch_row(page, "Therapy voice mute", therapy_audio_muted());
 
     ui_button(page, LV_SYMBOL_REFRESH "  Set time", open_time, NULL);
     ui_button(page, LV_SYMBOL_TRASH "  Clear logs", clear_logs_cb, NULL);

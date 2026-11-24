@@ -27,9 +27,13 @@ cc $CFLAGS -std=gnu11 -Istubs -I../sim/stubs \
    -DCONFIG_GW_K_ALERT_HYSTERESIS_CENTI_MM=30 -DCONFIG_GW_K_ALERT_HOLD_S=5 \
    test_app_state.c ../../main/app_state.c ../../main/calibration.c -lm -o build/app_state_tests
 
+# home therapy: pure angle/calibration and rep state machine
+cc $CFLAGS test_therapy.c ../../main/therapy_angle.c ../../main/therapy_session.c ../../main/kneil_raw_policy.c -lm -o build/therapy_tests
+
 ./build/host_tests
 ./build/app_state_tests
 ./build/kneil_tests
+./build/therapy_tests
 
 echo "contract: 200 emulator frames, 10% deliberately corrupted"
 # PYTHON=python on a Windows shell where python3 is the Store stub

@@ -28,12 +28,16 @@
 #include "ui.h"
 #include "ui_internal.h"
 #include "kneil_central.h"
+#include "therapy.h"
+
+void therapy_sim_init(void);
+void therapy_sim_set(const therapy_snapshot_t *s);
 
 /* ------------------------------------------------------------------
    Scenario
    ------------------------------------------------------------------ */
 
-typedef enum { SC_LIVE, SC_ALERT, SC_DEMO, SC_UNCAL, SC_NODATA, SC_KNEIL } scenario_t;
+typedef enum { SC_LIVE, SC_ALERT, SC_DEMO, SC_UNCAL, SC_NODATA, SC_KNEIL, SC_THERAPY } scenario_t;
 
 static scenario_t sc;
 static uint32_t   sim_ms;
@@ -385,13 +389,13 @@ int main(int argc, char **argv)
 {
     if(argc != 3)
     {
-        fprintf(stderr, "usage: %s live|alert|demo|uncal|nodata|kneil OUTDIR\n", argv[0]);
+        fprintf(stderr, "usage: %s live|alert|demo|uncal|nodata|kneil|therapy OUTDIR\n", argv[0]);
         return 2;
     }
 
-    const char *names[] = { "live", "alert", "demo", "uncal", "nodata", "kneil" };
+    const char *names[] = { "live", "alert", "demo", "uncal", "nodata", "kneil", "therapy" };
 
-    for(int i = 0; i < 6; i++)
+    for(int i = 0; i < 7; i++)
     {
         if(strcmp(argv[1], names[i]) == 0) sc = (scenario_t)i;
     }
@@ -473,6 +477,75 @@ int main(int argc, char **argv)
         settings.ble_mode = BLE_MODE_KNEIL;
         run_ms(800);
         save(out, "11_mode_kneil_again");
+    }
+
+    if(sc == SC_THERAPY)
+    {
+        therapy_snapshot_t t;
+
+        therapy_sim_init();
+        memset(&t, 0, sizeof(t));
+        t.state = THERAPY_STATE_IDLE;
+        t.exercise = THERAPY_EX_EXTENSION;
+        t.phase = THERAPY_PHASE_IDLE;
+        t.set = 1;
+        t.rep = 1;
+        t.target = THERAPY_EXT_TARGET_DEG;
+        t.phi = 90.0f;
+        t.angle_valid = true;
+        t.calibrated = true;
+        t.orientation_ok = true;
+        t.link_ok = true;
+        t.audio_ready = true;
+        t.log_ready = true;
+        t.best_extension = 90.0f;
+        t.best_flexion = 90.0f;
+        therapy_sim_set(&t);
+
+        ui_therapy_open();
+        run_ms(800);
+        save(out, "12_therapy_start");
+
+        t.state = THERAPY_STATE_RUNNING;
+        t.phase = THERAPY_PHASE_HOLD;
+        t.set = 1;
+        t.rep = 3;
+        t.reps_done = 2;
+        t.full_total = 2;
+        t.phi = 11.0f;
+        t.target = THERAPY_EXT_TARGET_DEG;
+        t.hold_s = 3.0f;
+        t.best_extension = 10.0f;
+        t.best_flexion = 92.0f;
+        therapy_sim_set(&t);
+        run_ms(600);
+        save(out, "13_therapy_rep");
+
+        t.phase = THERAPY_PHASE_SET_REST;
+        t.reps_done = 10;
+        t.rep = 10;
+        t.full_total = 9;
+        t.partial_total = 1;
+        t.rest_remaining_s = 24;
+        t.phi = 90.0f;
+        therapy_sim_set(&t);
+        run_ms(600);
+        save(out, "14_therapy_set_complete");
+
+        t.state = THERAPY_STATE_IDLE;
+        t.phase = THERAPY_PHASE_IDLE;
+        t.audio_ready = false;
+        t.log_ready = false;
+        t.straight_checked = true;
+        t.straight_extension_deg = 18.0f;
+        t.reps_done = 0;
+        t.rep = 1;
+        t.full_total = 0;
+        t.partial_total = 0;
+        t.phi = 90.0f;
+        therapy_sim_set(&t);
+        run_ms(600);
+        save(out, "15_therapy_warnings");
     }
 
     return 0;

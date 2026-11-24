@@ -24,6 +24,7 @@
 #include "power_service.h"
 #include "rtc_service.h"
 #include "sensor_link.h"
+#include "therapy.h"
 #include "usb_console.h"
 #include "ui.h"
 
@@ -59,6 +60,7 @@ void app_main(void)
     check("logger", data_logger_start());
     check("sensor link", sensor_link_start());
     check("demo generator", sensor_demo_start());
+    check("therapy", therapy_init());
     check("ble", ble_service_start());
     check("housekeeping", housekeeping_start());
 
