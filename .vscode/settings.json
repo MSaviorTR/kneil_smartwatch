@@ -1,6 +1,18 @@
 {
-  "idf.customExtraVars": {},
-  "idf.currentSetup": "/Users/korhankaradere/.espressif/v5.5.5/esp-idf",
-  "idf.monitorPort": "/dev/tty.usbmodem3101",
-  "idf.flashType": "UART"
+  "idf.customExtraVars": {
+    "IDF_TARGET": "esp32s3"
+  },
+  "idf.currentSetup": "C:\\esp\\v6.1\\esp-idf",
+  "idf.monitorPort": "COM21",
+  "idf.flashType": "UART",
+  "idf.port": "COM21",
+  "idf.openOcdConfigs": [
+    "board/esp32s3-builtin.cfg"
+  ],
+  "clangd.path": "C:\\Espressif\\tools\\esp-clangd\\esp-21.1.3_20260408\\esp-clangd\\bin\\clangd.exe",
+  "clangd.arguments": [
+    "--background-index",
+    "--query-driver=**",
+    "--compile-commands-dir=c:\\Users\\Mehdi\\Desktop\\PROJECTS\\kneil_sims\\guder_watch\\build"
+  ]
 }

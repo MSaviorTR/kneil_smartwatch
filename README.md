@@ -192,10 +192,11 @@ There is no pairing. That's fine on the bench, but add LE Secure Connections bef
 any work with people.
 
 ## Home therapy mode (KNEIL)
-In KNEIL mode the KNEIL page has a **Therapy** button: guided seated knee exercises (knee extension, knee bend) for
-home physiotherapy. The watch starts the implant's RAW stream (CONTROL 0x10) only during a session or calibration and
+In KNEIL mode the KNEIL page has a **Therapy** button: guided knee exercises for home physiotherapy: seated knee extension, seated knee bend and the
+standing knee curl (holding a chair, thigh upright, heel lifted behind). The watch starts the implant's RAW stream (CONTROL 0x10) only during a session or calibration and
 stops it (0x11) on pause, stop, back and at the end; on every new connection with no session it sends 0x11 once.
-- Knee angle: shank pitch `atan2(a_x, a_z)`, seated flexion `90 - (theta - theta_cal)`; calibration = 3 s sitting with
+- Knee angle: shank pitch `atan2(a_x, a_z)` (6 Hz low-pass, samples with | |a| - 1 g | >= 0.05 g ignored), seated
+  flexion `90 - (theta - theta_cal)`, standing flexion `-(theta - theta_cal)` (right only while the thigh is upright); calibration = 3 s sitting with
   the foot flat (knee at a right angle). The optional straight check only checks the sensor orientation and records
   the extension the patient reaches (no rescaling).
 - Reps: rest -> move -> hold at target (a beep each second) -> return; partial reps are logged with their peak angle.

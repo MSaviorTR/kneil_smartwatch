@@ -85,10 +85,27 @@ dependencies:
       registry_url: https://components.espressif.com
       type: service
     version: 2.9.0
+  espressif/usb:
+    component_hash: 5bcbf1bde509faef0750bbae5595b38e91cbbbd9aa0e3d308be64f9279b78aa0
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.5.3'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    targets:
+    - esp32s2
+    - esp32s3
+    - esp32s31
+    - esp32p4
+    - esp32h4
+    - linux
+    version: 1.6.1
   idf:
     source:
       type: idf
-    version: 5.5.5
+    version: 6.1.0
   lvgl/lvgl:
     component_hash: 184e532558c1c45fefed631f3e235423d22582aafb4630f3e8885c35281a49ae
     dependencies: []
@@ -157,4 +174,4 @@ direct_dependencies:
 - waveshare/esp32_s3_touch_amoled_2_06
 manifest_hash: fddf3e21925cfe6a72c970c49e5144a0cd1dea42e664a0740943fdb4a88d971c
 target: esp32s3
-version: 2.0.0
+version: 3.0.0
