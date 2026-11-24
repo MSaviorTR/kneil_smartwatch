@@ -132,15 +132,27 @@ bool therapy_log_available(void)
 }
 
 void therapy_log_session(const char *exercise, int sets_done, int full, int partial,
-                         float best_extension_deg, float best_flexion_deg, const char *reason)
+                         float best_extension_deg, float best_flexion_deg, bool standing, const char *reason)
 {
     char when[24];
     char line[LOG_LINE_MAX];
 
     stamp(when, sizeof(when));
-    snprintf(line, sizeof(line), "%s,session,%s,0,0,0,0,0,%s; sets %d full %d partial %d; best extension %.1f; "
-             "best flexion %.1f",
-             when, exercise ? exercise : "?", reason ? reason : "",
-             sets_done, full, partial, (double)best_extension_deg, (double)best_flexion_deg);
+
+    if(standing)
+    {
+        snprintf(line, sizeof(line), "%s,session,%s,0,0,0,0,0,%s; sets %d full %d partial %d; "
+                 "best extension %.1f; best standing flexion %.1f",
+                 when, exercise ? exercise : "?", reason ? reason : "",
+                 sets_done, full, partial, (double)best_extension_deg, (double)best_flexion_deg);
+    }
+    else
+    {
+        snprintf(line, sizeof(line), "%s,session,%s,0,0,0,0,0,%s; sets %d full %d partial %d; best extension %.1f; "
+                 "best flexion %.1f",
+                 when, exercise ? exercise : "?", reason ? reason : "",
+                 sets_done, full, partial, (double)best_extension_deg, (double)best_flexion_deg);
+    }
+
     enqueue(line);
 }

@@ -16,7 +16,9 @@ void therapy_sim_init(void)
     memset(&fake, 0, sizeof(fake));
     fake.state = THERAPY_STATE_IDLE;
     fake.exercise = THERAPY_EX_EXTENSION;
+    fake.rest = THERAPY_REST_DEG;
     fake.target = THERAPY_EXT_TARGET_DEG;
+    fake.hold_goal = THERAPY_HOLD_SECONDS;
     fake.set = 1;
     fake.rep = 1;
     fake.calibrated = true;
@@ -30,10 +32,29 @@ void therapy_sim_init(void)
 esp_err_t therapy_init(void) { therapy_sim_init(); return ESP_OK; }
 bool therapy_start(therapy_exercise_t ex)
 {
+    fake.exercise = ex;
     fake.state = THERAPY_STATE_RUNNING;
     fake.phase = THERAPY_PHASE_REST;
-    fake.exercise = ex;
-    fake.target = (ex == THERAPY_EX_EXTENSION) ? THERAPY_EXT_TARGET_DEG : THERAPY_BEND_TARGET_DEG;
+
+    if(ex == THERAPY_EX_CURL)
+    {
+        fake.rest = THERAPY_CURL_REST_DEG;
+        fake.target = THERAPY_CURL_TARGET_DEG;
+        fake.hold_goal = THERAPY_CURL_HOLD_SECONDS;
+    }
+    else if(ex == THERAPY_EX_BEND)
+    {
+        fake.rest = THERAPY_REST_DEG;
+        fake.target = THERAPY_BEND_TARGET_DEG;
+        fake.hold_goal = THERAPY_HOLD_SECONDS;
+    }
+    else
+    {
+        fake.rest = THERAPY_REST_DEG;
+        fake.target = THERAPY_EXT_TARGET_DEG;
+        fake.hold_goal = THERAPY_HOLD_SECONDS;
+    }
+
     return true;
 }
 void therapy_stop(void) { fake.state = THERAPY_STATE_IDLE; fake.phase = THERAPY_PHASE_IDLE; }
@@ -41,8 +62,8 @@ void therapy_pause(void) { fake.state = THERAPY_STATE_PAUSED; fake.phase = THERA
 bool therapy_resume(void) { fake.state = THERAPY_STATE_RUNNING; fake.phase = THERAPY_PHASE_REST; return true; }
 bool therapy_calibrate_start(therapy_cal_mode_t mode)
 {
-    (void)mode;
     fake.state = THERAPY_STATE_CALIBRATING;
+    fake.cal_mode = mode;
     fake.cal_progress_pct = 40;
     return true;
 }

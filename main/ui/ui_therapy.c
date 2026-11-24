@@ -23,10 +23,33 @@ static lv_obj_t *start_btn;
 static lv_obj_t *start_lbl;
 static lv_obj_t *ext_btn;
 static lv_obj_t *bend_btn;
+static lv_obj_t *curl_btn;
 static lv_obj_t *cal_btn;
+static lv_obj_t *stand_btn;
 static lv_obj_t *straight_btn;
+static lv_obj_t *ex_note;
 
 static therapy_exercise_t selected_exercise = THERAPY_EX_EXTENSION;
+
+static float selected_target(void)
+{
+    switch(selected_exercise)
+    {
+        case THERAPY_EX_EXTENSION: return THERAPY_EXT_TARGET_DEG;
+        case THERAPY_EX_BEND:      return THERAPY_BEND_TARGET_DEG;
+        default:                   return THERAPY_CURL_TARGET_DEG;
+    }
+}
+
+static void highlight_exercise(void)
+{
+    lv_obj_set_style_border_color(ext_btn, selected_exercise == THERAPY_EX_EXTENSION ? UI_COL_BLE : UI_COL_FAINT, 0);
+    lv_obj_set_style_border_width(ext_btn, selected_exercise == THERAPY_EX_EXTENSION ? 2 : 1, 0);
+    lv_obj_set_style_border_color(bend_btn, selected_exercise == THERAPY_EX_BEND ? UI_COL_BLE : UI_COL_FAINT, 0);
+    lv_obj_set_style_border_width(bend_btn, selected_exercise == THERAPY_EX_BEND ? 2 : 1, 0);
+    lv_obj_set_style_border_color(curl_btn, selected_exercise == THERAPY_EX_CURL ? UI_COL_BLE : UI_COL_FAINT, 0);
+    lv_obj_set_style_border_width(curl_btn, selected_exercise == THERAPY_EX_CURL ? 2 : 1, 0);
+}
 
 static void small_button_style(lv_obj_t *b)
 {
@@ -104,6 +127,16 @@ static void straight_cb(lv_event_t *e)
     }
 }
 
+static void stand_calibrate_cb(lv_event_t *e)
+{
+    (void)e;
+
+    if(!therapy_calibrate_start(THERAPY_CAL_STAND))
+    {
+        lv_label_set_text(status_lbl, "Not connected. Check the implant link.");
+    }
+}
+
 static void exercise_cb(lv_event_t *e)
 {
     therapy_snapshot_t s;
@@ -115,11 +148,20 @@ static void exercise_cb(lv_event_t *e)
         return;
     }
 
-    selected_exercise = (lv_event_get_target_obj(e) == bend_btn) ? THERAPY_EX_BEND : THERAPY_EX_EXTENSION;
-    lv_obj_set_style_border_color(ext_btn, selected_exercise == THERAPY_EX_EXTENSION ? UI_COL_BLE : UI_COL_FAINT, 0);
-    lv_obj_set_style_border_width(ext_btn, selected_exercise == THERAPY_EX_EXTENSION ? 2 : 1, 0);
-    lv_obj_set_style_border_color(bend_btn, selected_exercise == THERAPY_EX_BEND ? UI_COL_BLE : UI_COL_FAINT, 0);
-    lv_obj_set_style_border_width(bend_btn, selected_exercise == THERAPY_EX_BEND ? 2 : 1, 0);
+    if(lv_event_get_target_obj(e) == bend_btn)
+    {
+        selected_exercise = THERAPY_EX_BEND;
+    }
+    else if(lv_event_get_target_obj(e) == curl_btn)
+    {
+        selected_exercise = THERAPY_EX_CURL;
+    }
+    else
+    {
+        selected_exercise = THERAPY_EX_EXTENSION;
+    }
+
+    highlight_exercise();
 }
 
 void ui_therapy_create(void)
@@ -187,12 +229,24 @@ void ui_therapy_create(void)
     lv_obj_t *ex_row = ui_row(page);
     ext_btn = small_button(ex_row, "Extension", exercise_cb);
     bend_btn = small_button(ex_row, "Bend", exercise_cb);
-    lv_obj_set_style_border_color(ext_btn, UI_COL_BLE, 0);
-    lv_obj_set_style_border_width(ext_btn, 2, 0);
+    curl_btn = small_button(ex_row, "Standing", exercise_cb);
+    lv_obj_set_width(ext_btn, LV_PCT(31));
+    lv_obj_set_width(bend_btn, LV_PCT(31));
+    lv_obj_set_width(curl_btn, LV_PCT(31));
+    highlight_exercise();
+
+    ex_note = ui_label(page, "", &lv_font_montserrat_14, UI_COL_DIM);
+    lv_label_set_long_mode(ex_note, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(ex_note, LV_PCT(100));
+    lv_obj_set_style_text_align(ex_note, LV_TEXT_ALIGN_CENTER, 0);
 
     lv_obj_t *cal_row = ui_row(page);
-    cal_btn = small_button(cal_row, "Calibrate", calibrate_cb);
-    straight_btn = small_button(cal_row, "Straight check", straight_cb);
+    cal_btn = small_button(cal_row, "Sit cal", calibrate_cb);
+    stand_btn = small_button(cal_row, "Stand cal", stand_calibrate_cb);
+    straight_btn = small_button(cal_row, "Straight", straight_cb);
+    lv_obj_set_width(cal_btn, LV_PCT(31));
+    lv_obj_set_width(stand_btn, LV_PCT(31));
+    lv_obj_set_width(straight_btn, LV_PCT(31));
 
     lv_obj_t *run_row = ui_row(page);
     start_btn = small_button(run_row, "Start", start_cb);
@@ -224,7 +278,18 @@ static const char *phase_text(const therapy_snapshot_t *s, char *buf, size_t siz
     switch(s->state)
     {
         case THERAPY_STATE_CALIBRATING:
-            snprintf(buf, size, "Sit still, foot flat, knee at 90 deg. %d%%", s->cal_progress_pct);
+            if(s->cal_mode == THERAPY_CAL_STAND)
+            {
+                snprintf(buf, size, "Stand tall, keep still. %d%%", s->cal_progress_pct);
+            }
+            else if(s->cal_mode == THERAPY_CAL_STRAIGHT)
+            {
+                snprintf(buf, size, "Straighten the leg, keep still. %d%%", s->cal_progress_pct);
+            }
+            else
+            {
+                snprintf(buf, size, "Sit still, foot flat, knee at 90 deg. %d%%", s->cal_progress_pct);
+            }
             return buf;
         case THERAPY_STATE_PAUSED:
             return "Paused.";
@@ -247,16 +312,18 @@ static const char *phase_text(const therapy_snapshot_t *s, char *buf, size_t siz
             snprintf(buf, size, "Set complete. Rest %d s.", s->rest_remaining_s);
             return buf;
         case THERAPY_PHASE_HOLD:
-            snprintf(buf, size, "Hold. %.0f / %d s.", (double)s->hold_s, THERAPY_HOLD_SECONDS);
+            snprintf(buf, size, "Hold. %.0f / %d s.", (double)s->hold_s, (int)(s->hold_goal + 0.5f));
             return buf;
         case THERAPY_PHASE_RETURN:
-            return (s->exercise == THERAPY_EX_EXTENSION) ? "Lower slowly." : "Straighten slowly.";
+            return (s->exercise == THERAPY_EX_BEND) ? "Straighten slowly." : "Lower slowly.";
         case THERAPY_PHASE_MOVING:
-            return (s->exercise == THERAPY_EX_EXTENSION) ? "Straighten slowly to the target." :
-                                                           "Slide the foot back slowly.";
+            if(s->exercise == THERAPY_EX_EXTENSION) return "Straighten slowly to the target.";
+            if(s->exercise == THERAPY_EX_CURL)      return "Bend your knee, lift your heel behind you.";
+            return "Slide the foot back slowly.";
         case THERAPY_PHASE_REST:
-            return (s->exercise == THERAPY_EX_EXTENSION) ? "Straighten your knee slowly." :
-                                                           "Bend your knee, slide the foot back.";
+            if(s->exercise == THERAPY_EX_EXTENSION) return "Straighten your knee slowly.";
+            if(s->exercise == THERAPY_EX_CURL)      return "Stand tall and hold the chair. Keep your thigh upright.";
+            return "Bend your knee, slide the foot back.";
         default:
             break;
     }
@@ -290,8 +357,27 @@ void ui_therapy_refresh(void)
     lv_label_set_text(angle_lbl, buf);
     lv_obj_set_style_text_color(angle_lbl, s.angle_valid ? UI_COL_TEXT : UI_COL_WARN, 0);
 
-    snprintf(buf, sizeof(buf), "target %.0f deg", (double)s.target);
+    snprintf(buf, sizeof(buf), "target %.0f deg",
+             (double)((s.state == THERAPY_STATE_IDLE) ? selected_target() : s.target));
     lv_label_set_text(target_lbl, buf);
+
+    const therapy_exercise_t shown = (s.state == THERAPY_STATE_IDLE) ? selected_exercise : s.exercise;
+    const char *note = "";
+
+    if(shown == THERAPY_EX_EXTENSION)
+    {
+        note = "Seated. Straighten the knee slowly.";
+    }
+    else if(shown == THERAPY_EX_BEND)
+    {
+        note = "Seated. Slide the foot back; keep the thigh still.";
+    }
+    else
+    {
+        note = "Standing: keep your thigh still and upright. The angle is only right while the thigh is vertical.";
+    }
+
+    lv_label_set_text(ex_note, note);
 
     snprintf(buf, sizeof(buf), "set %d/%d   rep %d/%d", s.set, THERAPY_SETS,
              (s.reps_done < THERAPY_REPS) ? s.reps_done + 1 : THERAPY_REPS, THERAPY_REPS);
@@ -364,14 +450,18 @@ void ui_therapy_refresh(void)
     {
         lv_obj_add_state(ext_btn, LV_STATE_DISABLED);
         lv_obj_add_state(bend_btn, LV_STATE_DISABLED);
+        lv_obj_add_state(curl_btn, LV_STATE_DISABLED);
         lv_obj_add_state(cal_btn, LV_STATE_DISABLED);
+        lv_obj_add_state(stand_btn, LV_STATE_DISABLED);
         lv_obj_add_state(straight_btn, LV_STATE_DISABLED);
     }
     else
     {
         lv_obj_remove_state(ext_btn, LV_STATE_DISABLED);
         lv_obj_remove_state(bend_btn, LV_STATE_DISABLED);
+        lv_obj_remove_state(curl_btn, LV_STATE_DISABLED);
         lv_obj_remove_state(cal_btn, LV_STATE_DISABLED);
+        lv_obj_remove_state(stand_btn, LV_STATE_DISABLED);
 
         if(s.calibrated)
         {

@@ -4,9 +4,9 @@
 
 #define RAD2DEG 57.29577951308232f
 
-static float lowpass_alpha(void)
+static float lowpass_alpha(float hz)
 {
-    return 1.0f - expf(-2.0f * 3.14159265358979f * THERAPY_LOWPASS_HZ / (float)THERAPY_FS_HZ);
+    return 1.0f - expf(-2.0f * 3.14159265358979f * hz / (float)THERAPY_FS_HZ);
 }
 
 void therapy_angle_init(therapy_angle_t *a)
@@ -16,10 +16,20 @@ void therapy_angle_init(therapy_angle_t *a)
     a->orientation_ok = true;
 }
 
+void therapy_angle_set_mode(therapy_angle_t *a, bool standing)
+{
+    if(a->standing != standing)
+    {
+        a->standing = standing;
+        therapy_angle_reset_filter(a);
+    }
+}
+
 void therapy_angle_reset_filter(therapy_angle_t *a)
 {
     a->primed = false;
     a->lp_x = a->lp_y = a->lp_z = 0.0f;
+    a->display_primed = false;
     a->valid = false;
     a->mag_ok = a->y_ok = false;
 }
@@ -56,6 +66,10 @@ bool therapy_angle_push(therapy_angle_t *a, int16_t x_mg, int16_t y_mg, int16_t 
     const float y = (float)y_mg / 1000.0f;
     const float z = (float)z_mg / 1000.0f;
 
+    /* The gate uses the raw magnitude (L1 A.1): a sudden kick is rejected immediately, before the filter
+       smears it into the angle. */
+    a->raw_magnitude_g = sqrtf(x * x + y * y + z * z);
+
     if(!a->primed)
     {
         a->lp_x = x; a->lp_y = y; a->lp_z = z;
@@ -63,7 +77,7 @@ bool therapy_angle_push(therapy_angle_t *a, int16_t x_mg, int16_t y_mg, int16_t 
     }
     else
     {
-        const float alpha = lowpass_alpha();
+        const float alpha = lowpass_alpha(THERAPY_LOWPASS_HZ);
 
         a->lp_x += alpha * (x - a->lp_x);
         a->lp_y += alpha * (y - a->lp_y);
@@ -72,10 +86,31 @@ bool therapy_angle_push(therapy_angle_t *a, int16_t x_mg, int16_t y_mg, int16_t 
 
     a->magnitude_g = sqrtf(a->lp_x * a->lp_x + a->lp_y * a->lp_y + a->lp_z * a->lp_z);
     a->theta_deg   = atan2f(a->lp_x, a->lp_z) * RAD2DEG;
-    a->phi_deg     = 90.0f - a->scale * (a->theta_deg - a->theta_cal);
-    a->mag_ok      = fabsf(a->magnitude_g - 1.0f) < THERAPY_TRUST_DY_G;
-    a->y_ok        = fabsf(a->lp_y) < THERAPY_TRUST_Y_G;
-    a->valid       = a->mag_ok && a->y_ok;
+
+    /* Seated: straightening the knee raises theta, so phi falls. Standing: the thigh is vertical and the heel
+       goes back, which makes theta negative, so phi rises. */
+    a->phi_deg = a->standing ? -(a->theta_deg - a->theta_cal)
+                             : 90.0f - (a->theta_deg - a->theta_cal);
+
+    a->mag_ok = fabsf(a->raw_magnitude_g - 1.0f) < THERAPY_TRUST_DY_G;
+    a->y_ok   = fabsf(a->lp_y) < THERAPY_TRUST_Y_G;
+    a->valid  = a->mag_ok && a->y_ok;
+
+    if(a->valid)
+    {
+        /* Display-only smoothing: the rep logic always uses the 6 Hz phi. */
+        if(!a->display_primed)
+        {
+            a->phi_display = a->phi_deg;
+            a->display_primed = true;
+        }
+        else
+        {
+            const float alpha = lowpass_alpha(THERAPY_DISPLAY_HZ);
+
+            a->phi_display += alpha * (a->phi_deg - a->phi_display);
+        }
+    }
 
     return a->valid;
 }
@@ -115,8 +150,9 @@ bool therapy_angle_cal_add(therapy_angle_t *a, int16_t x_mg, int16_t y_mg, int16
 
     const float mean = (float)(a->cal_sum / a->cal_valid);
 
-    if(a->cal_mode == THERAPY_CAL_SIT)
+    if(a->cal_mode == THERAPY_CAL_SIT || a->cal_mode == THERAPY_CAL_STAND)
     {
+        /* Both poses have a vertical shank, so either gives the same mount calibration. */
         a->theta_cal = mean;
         a->scale = 1.0f;
         a->calibrated = true;
