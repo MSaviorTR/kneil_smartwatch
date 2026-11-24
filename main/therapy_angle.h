@@ -21,7 +21,8 @@ extern "C" {
  * so straightening lowers phi. The samples are low-passed at about 2 Hz. The angle is trusted only when
  * the acceleration magnitude is near 1 g and the lateral component is small.
  *
- * Calibration has two optional steps: sitting (sets theta_cal) and leg straight (checks the scale).
+ * Calibration has two steps: sitting (sets theta_cal) and an optional leg-straight check that verifies the sign
+ * and records the reached extension. There is no scale correction.
  * The second step is optional; without it scale stays 1.
  */
 
@@ -72,7 +73,7 @@ void therapy_angle_set_calibration(therapy_angle_t *a, float theta_cal, float sc
 
 bool therapy_angle_calibrated(const therapy_angle_t *a);
 
-/* Start a 3 s collection. SIT sets theta_cal; STRAIGHT checks the scale against 90 deg of travel. */
+/* Start a 3 s collection. SIT sets theta_cal; STRAIGHT checks the sign and records the reached extension. */
 void therapy_angle_cal_begin(therapy_angle_t *a, therapy_cal_mode_t mode);
 
 /* One RAW sample (mg). Returns true when this sample was valid (trusted angle). */
